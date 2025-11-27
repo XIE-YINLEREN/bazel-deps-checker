@@ -1,0 +1,13 @@
+# 调试模式配置
+build:debug -c dbg
+build:debug --copt=-g
+build:debug --copt=-ggdb
+build:debug --strip=never
+
+# 发布模式配置
+build:release -c opt
+
+build:windows --copt=/std:c++17
+build:windows --copt=/utf-8
+build:windows --host_copt=/std:c++17
+build:windows --host_copt=/utf-8

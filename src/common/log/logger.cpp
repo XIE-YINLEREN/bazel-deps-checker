@@ -87,7 +87,7 @@ std::string Logger::levelToString(LogLevel level) {
         case LogLevel::DEBUG: return "DEBUG";
         case LogLevel::INFO:  return "INFO";
         case LogLevel::WARN:  return "WARN";
-        case LogLevel::LOG_ERROR: return "ERROR";
+        case LogLevel::ERROR: return "ERROR";
         case LogLevel::FATAL: return "FATAL";
         default: return "UNKNOWN";
     }
@@ -101,7 +101,7 @@ std::string Logger::getColorCode(LogLevel level) {
         case LogLevel::DEBUG: return "\033[36m";  // 青色
         case LogLevel::INFO:  return "\033[32m";  // 绿色
         case LogLevel::WARN:  return "\033[33m";  // 黄色
-        case LogLevel::LOG_ERROR: return "\033[31m";  // 红色
+        case LogLevel::ERROR: return "\033[31m";  // 红色
         case LogLevel::FATAL: return "\033[35m";  // 洋红色
         default: return "";
     }

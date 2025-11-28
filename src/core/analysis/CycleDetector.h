@@ -23,7 +23,12 @@ public:
 private:
     const DependencyGraph& graph_;
     
+    // 检测是否为直接循环依赖
     bool IsDirectCycle(const std::vector<std::string>& cycle) const;
+
+    // 检测是否为间接循环依赖
     bool IsDiamondDependency(const std::vector<std::string>& cycle) const;
+
+    // 提取循环公共接口
     std::string ExtractCommonInterface(const std::vector<std::string>& targets);
 };

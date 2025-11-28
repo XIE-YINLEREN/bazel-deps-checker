@@ -1,15 +1,15 @@
 #pragma once
 
-#include <string>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
+#include <algorithm>
+
+#include "struct.h"
 
 class DependencyGraph {
 public:
-    void AddTarget(const std::string& target, 
-                   const std::vector<std::string>& dependencies);
-    
+    DependencyGraph(std::unordered_map<std::string, BazelTarget> targets);
+
     // 检测循环依赖
     std::vector<std::vector<std::string>> FindCycles() const;
     
@@ -27,6 +27,12 @@ public:
 private:
     std::unordered_map<std::string, std::vector<std::string>> graph_;
     
+    std::unordered_map<std::string, BazelTarget> grap_targets;
+
+    // 构建依赖模型
+    void BuildGraph();
+
+    // 辅助方法
     bool HasCycleDFS(const std::string& node, 
                      std::unordered_set<std::string>& visited,
                      std::unordered_set<std::string>& recursion_stack,

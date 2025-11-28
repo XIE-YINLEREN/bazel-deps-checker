@@ -19,7 +19,7 @@ enum class LogLevel {
     DEBUG = 1,
     INFO = 2,
     WARN = 3,
-    LOG_ERROR = 4,
+    ERROR = 4,
     FATAL = 5,
     OFF = 6
 };
@@ -82,7 +82,7 @@ private:
     Logger::getInstance().logWithStream(LogLevel::WARN, message, __FILE__, __LINE__, __FUNCTION__)
 
 #define LOG_ERROR(message) \
-    Logger::getInstance().logWithStream(LogLevel::LOG_ERROR, message, __FILE__, __LINE__, __FUNCTION__)
+    Logger::getInstance().logWithStream(LogLevel::ERROR, message, __FILE__, __LINE__, __FUNCTION__)
 
 #define LOG_FATAL(message) \
     Logger::getInstance().logWithStream(LogLevel::FATAL, message, __FILE__, __LINE__, __FUNCTION__)

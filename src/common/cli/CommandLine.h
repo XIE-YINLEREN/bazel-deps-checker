@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-#include "src/log/logger.h"
+#include "log/logger.h"
 
 enum OutputFormat {
     TEXT,

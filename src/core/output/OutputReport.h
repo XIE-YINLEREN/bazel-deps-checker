@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "src/analysis/CycleDetector.h"
+#include "analysis/CycleDetector.h"
 
 class OutputReport {
 public:

@@ -9,10 +9,10 @@
 
 class BuildFileParser {
 private:
-    std::string workspace_root;
+    std::string workspace_path;
     std::unique_ptr<AdvancedBazelQueryParser> bazel_query_parser;
 public:
-    explicit BuildFileParser(const std::string& workspace_root);
+    explicit BuildFileParser(const std::string& workspace_path);
     
     // 解析整个工作区的BUILD文件
     std::unordered_map<std::string, BazelTarget> ParseWorkspace();

@@ -13,3 +13,18 @@ struct BazelTarget {
     std::vector<std::string> srcs;
     bool empty() const { return name.empty(); }
 };
+
+
+enum class OutputFormat {
+    CONSOLE,    // 控制台输出
+    MARKDOWN,   // Markdown格式
+    JSON,       // JSON格式
+    HTML        // HTML格式
+};
+
+
+enum class ConfidenceLevel {
+    HIGH,   // 明确的未使用依赖
+    MEDIUM, // 可能未使用的依赖
+    LOW     // 需要进一步验证的依赖
+};

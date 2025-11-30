@@ -12,5 +12,5 @@ private:
 public:
     explicit BuildFileDependencyer(std::unordered_map<std::string, BazelTarget> targets);
 
-    
+    const DependencyGraph& GetDependencyGraph() const;
 };

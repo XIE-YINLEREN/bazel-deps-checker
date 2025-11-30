@@ -1,9 +1,9 @@
 #include "BuildFileParser.h"
 
 
-BuildFileParser::BuildFileParser(const std::string& workspace_root)
-    : workspace_root(workspace_root) {
-    bazel_query_parser = std::make_unique<AdvancedBazelQueryParser>(workspace_root);
+BuildFileParser::BuildFileParser(const std::string& workspace_path)
+    : workspace_path(workspace_path) {
+    bazel_query_parser = std::make_unique<AdvancedBazelQueryParser>(workspace_path);
 }
 
 

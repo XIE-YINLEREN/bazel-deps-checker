@@ -1,13 +1,12 @@
 #pragma once
 
 #include <cstring>
+#include <filesystem>
+#include <iostream>
+#include <cstring>
 
 #include "log/logger.h"
-
-enum OutputFormat {
-    TEXT,
-    JSON
-};
+#include "struct.h"
 
 
 class CommandLineArgs {
@@ -16,19 +15,32 @@ private:
 
     CommandLineArgs(int argc, char* argv[]);
 
+    OutputFormat ParseOutputFormat(const std::string& format_str) const;
+
+    // 解析命令行参数
     void ParseCommandLine(int argc, char* argv[]);
 
-    void useage() const;
+    // 显示使用说明
+    void PrintHelp() const;
 
 public:
     static CommandLineArgs* GetInstance(int argc, char* argv[]);
 
-    // 锟斤拷锟斤拷锟绞?
-    std::string workspace_root{};
+    // 工作区根路径
+    std::string workspace_path{};
 
-    // 锟斤拷锟斤拷锟绞?
-    OutputFormat output_format{TEXT};
+    // 输出路径
+    std::string output_path{};
 
-    // 锟斤拷锟斤拷指锟斤拷
+    // 输出格式
+    OutputFormat output_format{OutputFormat::CONSOLE};
+
+    // 是否启用详细日志
+    bool verbose{false};
+
+    // 是否包含测试目标
+    bool include_tests{false};
+
+    // 单例实例
     static CommandLineArgs* CommandLineArgsHandle;
 };

@@ -235,7 +235,7 @@ void AdvancedBazelQueryParser::QueryTargetDetails(BazelTarget& target) {
         
         // 3. 查询直接依赖
         try {
-            std::string deps_query = "query 'kind(cc_library, deps(" + target_label + "))' --output=label";
+            std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label";
             std::string deps_output = ExecuteBazelCommand(deps_query);
             target.deps = ExtractDependencies(target_label, deps_output);
         } catch (const std::exception& e) {

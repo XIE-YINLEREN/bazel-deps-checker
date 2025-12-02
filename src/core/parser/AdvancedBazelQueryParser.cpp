@@ -1,4 +1,5 @@
 #include "AdvancedBazelQueryParser.h"
+#include <algorithm>
 
 AdvancedBazelQueryParser::AdvancedBazelQueryParser(
     const std::string& workspace_path, const std::string& bazel_binary)
@@ -26,7 +27,7 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWork
         // 回退到逐个查询
         targets = ParseWithIndividualQueries();
     }
-    
+
     RestoreOriginalDirectory();
     return targets;
 }
@@ -94,7 +95,12 @@ BazelTarget AdvancedBazelQueryParser::ParseTargetFromLabelKind(const std::string
         size_t last_colon = target_label.find_last_of(':');
         if (last_colon != std::string::npos) {
             target.name = target_label.substr(last_colon + 1);
-            target.path = target_label.substr(0, last_colon + 1);
+            std::string target_path = target_label.substr(0, last_colon);
+            
+            target.path = ConvertBazelLabelToPath(target_path);
+        } else {
+            target.path = ConvertBazelLabelToPath(target_label);
+            target.name = target_label;
         }
     }
     
@@ -121,14 +127,17 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWith
                 
                 // 解析路径和名称
                 size_t last_colon = label.find_last_of(':');
+                std::string target_path;
                 if (last_colon != std::string::npos) {
-                    target.path = label.substr(0, last_colon);
+                    target_path = label.substr(0, last_colon);
                     target.name = label.substr(last_colon + 1);
                 } else {
-                    target.path = label;
+                    target_path = label;
                     size_t last_slash = label.find_last_of('/');
                     target.name = (last_slash != std::string::npos) ? label.substr(last_slash + 1) : label;
                 }
+                
+                target.path = ConvertBazelLabelToPath(target_path);
                 
                 // 查询目标详细信息
                 QueryTargetDetails(target);
@@ -167,7 +176,6 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllT
     int processed = 0;
     for (const auto& label : target_labels) {
         try {
-            // 只处理C++相关的目标以提高效率
             if (label.find("cc_") == std::string::npos) {
                 continue;
             }
@@ -176,10 +184,16 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllT
             target.full_label = label;
             
             size_t last_colon = label.find_last_of(':');
+            std::string target_path;
             if (last_colon != std::string::npos) {
-                target.path = label.substr(0, last_colon);
+                target_path = label.substr(0, last_colon);
                 target.name = label.substr(last_colon + 1);
+            } else {
+                target_path = label;
+                target.name = label;
             }
+            
+            target.path = ConvertBazelLabelToPath(target_path);
             
             QueryTargetDetails(target);
             
@@ -222,13 +236,25 @@ void AdvancedBazelQueryParser::QueryTargetDetails(BazelTarget& target) {
         try {
             std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label";
             std::string srcs_output = ExecuteBazelCommand(srcs_query);
-            target.srcs = SplitLines(srcs_output);
+            std::vector<std::string> src_labels = SplitLines(srcs_output);
             
-            // 查询头文件
+            for (const auto& src_label : src_labels) {
+                std::string src_path = ConvertBazelLabelToPath(src_label);
+                if (!src_path.empty()) {
+                    target.srcs.push_back(src_path);
+                }
+            }
+            
             std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label";
             std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
-            auto hdrs = SplitLines(hdrs_output);
-            target.srcs.insert(target.srcs.end(), hdrs.begin(), hdrs.end());
+            std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
+            
+            for (const auto& hdr_label : hdr_labels) {
+                std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
+                if (!hdr_path.empty()) {
+                    target.hdrs.push_back(hdr_path);
+                }
+            }
         } catch (const std::exception& e) {
             LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
         }
@@ -269,22 +295,18 @@ std::vector<std::string> AdvancedBazelQueryParser::ExtractDependencies(const std
         if (line.find(target_label) != std::string::npos) {
             continue;
         }
-
+#ifndef CHECK_EXTERN_DEPS
         if (!line.empty()) {
-            deps.push_back(line);
+            if (line.find("@") != 0) {
+                deps.push_back(line);
+            }
         }
+#endif // CHECK_EXTERN_DEPS
     }
     
     return deps;
 }
 
-std::string AdvancedBazelQueryParser::ExtractTargetName(const std::string& target_label) {
-    size_t last_colon = target_label.find_last_of(':');
-    if (last_colon != std::string::npos) {
-        return target_label.substr(last_colon + 1);
-    }
-    return target_label;
-}
 
 std::vector<std::string> AdvancedBazelQueryParser::SplitLines(const std::string& input) {
     std::vector<std::string> lines;
@@ -292,7 +314,8 @@ std::vector<std::string> AdvancedBazelQueryParser::SplitLines(const std::string&
     std::string line;
     
     while (std::getline(iss, line)) {
-        if(line.find("Loading:") != std::string::npos) {
+        if(line.find("Loading:") != std::string::npos || 
+            line.find("INFO:") != std::string::npos ) {
             continue;
         }
 
@@ -361,4 +384,51 @@ std::string AdvancedBazelQueryParser::ExecuteSystemCommand(const std::string& co
     } else {
         throw std::runtime_error("Command timeout: " + command);
     }
+}
+
+std::string AdvancedBazelQueryParser::ConvertBazelLabelToPath(const std::string& bazel_label) {
+    if (bazel_label.empty()) {
+        return "";
+    }
+    
+    if (bazel_label.find("//") != 0) {
+        return bazel_label;
+    }
+    
+    // 移除开头的"//"
+    std::string label = bazel_label.substr(2);
+    std::string package_path;
+    std::string target_name;
+    
+    // 查找冒号分隔符
+    size_t colon_pos = label.find(':');
+    
+    if (colon_pos != std::string::npos) {
+        package_path = label.substr(0, colon_pos);
+        target_name = label.substr(colon_pos + 1);
+    } else {
+        package_path = label;
+        size_t last_slash = package_path.find_last_of('/');
+        if (last_slash != std::string::npos) {
+            target_name = package_path.substr(last_slash + 1);
+        } else {
+            target_name = package_path;
+        }
+    }
+    
+    // 处理根包情况
+    if (package_path.empty()) {
+        package_path = ".";
+    }
+    
+    // 构建完整路径
+    std::filesystem::path full_path;
+    
+    if (target_name.empty()) {
+        full_path = std::filesystem::path(workspace_path) / package_path;
+    } else {
+        full_path = std::filesystem::path(workspace_path) / package_path / target_name;
+    }
+    
+    return full_path.string();
 }

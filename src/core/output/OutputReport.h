@@ -35,4 +35,5 @@ private:
     std::string FormatCyclePath(const std::vector<std::string>& cycle) const;
     std::string EscapeJsonString(const std::string& str) const;
     std::string GetCurrentTimestamp() const;
+    std::string ConfidenceLevelToString(const ConfidenceLevel level);
 };

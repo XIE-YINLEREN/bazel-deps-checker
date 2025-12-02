@@ -1,33 +1,29 @@
 #pragma once
 
-#include "graph/DependencyGraph.h"
-#include "SourceAnalyzer.h" 
-#include <cstddef>
-#include <vector>
 #include <string>
-#include <unordered_set>
+#include <vector>
+#include <unordered_map>
 #include <memory>
 
+#include "graph/DependencyGraph.h"
+#include "analysis/SourceAnalyzer.h"
+
+// 循环类型枚举
 enum class CycleType {
-    DIRECT_CYCLE,
-    DIAMOND_DEPENDENCY, 
-    COMPLEX_CYCLE,
-    SIMPLE_CYCLE
+    DIRECT_CYCLE,        // 直接循环（双向依赖）
+    DIAMOND_DEPENDENCY,  // 菱形依赖
+    COMPLEX_CYCLE,       // 复杂循环（大于3个节点）
+    SIMPLE_CYCLE         // 简单循环（2-3个节点）
 };
 
-
+// 循环分析结果
 struct CycleAnalysis {
-    std::vector<std::string> cycle;
-    CycleType cycle_type;
-    std::vector<std::string> suggested_fixes;
-    std::vector<RemovableDependency> removable_dependencies;
-    bool contains_test_targets;
-    bool contains_external_deps;
-
-    // 辅助方法
-    bool containsTestTargets() const;
-    bool containsExternalDeps() const;
-    std::string toString() const;
+    std::vector<std::string> cycle;            // 循环路径
+    CycleType cycle_type;                      // 循环类型
+    bool contains_test_targets;                // 是否包含测试目标
+    bool contains_external_deps;               // 是否包含外部依赖
+    std::vector<RemovableDependency> removable_dependencies;  // 可移除的依赖
+    std::vector<std::string> suggested_fixes;  // 建议的修复方案
 };
 
 inline std::ostream& operator<<(std::ostream& os, CycleType type) {
@@ -53,59 +49,63 @@ inline std::ostream& operator<<(std::ostream& os, CycleType type) {
 
 class CycleDetector {
 public:
-    CycleDetector(const DependencyGraph& graph, std::unordered_map<std::string, BazelTarget> targets);
-
-    // 分析所有循环并生成报告
+    // 构造函数，接受依赖图和目标映射
+    CycleDetector(const DependencyGraph& graph, const std::unordered_map<std::string, BazelTarget>& targets);
+    
+    // 分析所有循环依赖
     std::vector<CycleAnalysis> AnalyzeCycles();
-
-    // 为特定循环生成修复建议
+    
+    // 生成修复建议字符串
     std::string GenerateFixSuggestion(const CycleAnalysis& analysis) const;
-
+    
 private:
-    // 分析和分类循环
+    // 分类单个循环
     CycleAnalysis ClassifyCycle(const std::vector<std::string>& cycle) const;
-
-    // 分析可移除依赖
+    
+    // 分析循环中的可移除依赖
     void AnalyzeRemovableDependencies(CycleAnalysis& analysis) const;
-
-    // 依赖分析方法
+    
+    // 代码级别的依赖分析
     std::vector<RemovableDependency> AnalyzeDependencyAtCodeLevel(const std::string& from, const std::string& to) const;
+    
+    // Target级别的依赖分析
     std::vector<RemovableDependency> AnalyzeDependencyAtTargetLevel(const std::string& from, const std::string& to) const;
-
-    // 置信度计算
+    
+    // 计算依赖移除的置信度
     ConfidenceLevel CalculateConfidence(const RemovableDependency& dep) const;
-
-    // 关键依赖检查
+    
+    // 检查依赖是否关键（无可替代路径）
     bool IsCriticalDependency(const std::string& from, const std::string& to) const;
-
-    // 循环类型判定
+    
+    // 确定循环的基本类型
     CycleType DetermineBaseCycleType(const std::vector<std::string>& cycle) const;
-
-    // 额外分类应用
-    void ApplyAdditionalClassifications(CycleAnalysis& analysis) const;
-
-    // 类型特定建议添加
-    void AddTypeSpecificSuggestions(CycleAnalysis& analysis) const;
-
-    // 直接循环检测
+    
+    // 检查是否为直接循环（双向依赖）
     bool IsDirectCycle(const std::vector<std::string>& cycle) const;
-
-    // 钻石依赖检测
+    
+    // 检查是否为菱形依赖
     bool IsDiamondDependency(const std::vector<std::string>& cycle) const;
-
-    // 提取公共接口建议
-    std::string ExtractCommonInterface(const std::vector<std::string>& targets) const;
-
-    // 辅助方法
+    
+    // 检查循环是否包含测试目标
     bool ContainsTestTargets(const std::vector<std::string>& cycle) const;
-
-    // 外部依赖检查
+    
+    // 检查循环是否包含外部依赖
     bool ContainsExternalDeps(const std::vector<std::string>& cycle) const;
-
-    // 类型转字符串
+    
+    // 应用额外的分类建议
+    void ApplyAdditionalClassifications(CycleAnalysis& analysis) const;
+    
+    // 根据循环类型添加特定建议
+    void AddTypeSpecificSuggestions(CycleAnalysis& analysis) const;
+    
+    // 提取公共接口名
+    std::string ExtractCommonInterface(const std::vector<std::string>& targets) const;
+    
+    // 将循环类型转换为字符串
     std::string CycleTypeToString(CycleType type) const;
-
-    const DependencyGraph& graph_; 
-    std::unordered_map<std::string, BazelTarget> targets_;
-    std::shared_ptr<SourceAnalyzer> source_analyzer_;
+    
+private:
+    const DependencyGraph& graph_;                              // 依赖图引用
+    const std::unordered_map<std::string, BazelTarget>& targets_;  // 目标映射引用
+    std::shared_ptr<SourceAnalyzer> source_analyzer_;           // 源代码分析器
 };

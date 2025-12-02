@@ -45,7 +45,7 @@ void OutputReport::GenerateReport(const std::vector<CycleAnalysis>& cycles, cons
 
 void OutputReport::GenerateConsoleReport(const std::vector<CycleAnalysis>& cycles, std::ostream& os) {
     if (cycles.empty()) {
-        os << "✓ 未发现循环依赖\n";
+        os << "未发现循环依赖\n";
         return;
     }
     
@@ -59,9 +59,22 @@ void OutputReport::GenerateConsoleReport(const std::vector<CycleAnalysis>& cycle
         const auto& analysis = cycles[i];
         
         os << "循环 #" << (i + 1) << ":\n";
-        os << "├─ 类型: " << analysis.cycle_type << "\n";  // 现在可以正常输出
+        os << "├─ 类型: " << analysis.cycle_type << "\n";
         os << "├─ 路径: " << FormatCyclePath(analysis.cycle) << "\n";
         os << "├─ 长度: " << analysis.cycle.size() << " 个目标\n";
+        
+        // 添加可移除依赖的输出
+        if (!analysis.removable_dependencies.empty()) {
+            os << "├─ 可安全移除的依赖:\n";
+            for (size_t j = 0; j < analysis.removable_dependencies.size(); ++j) {
+                const auto& dep = analysis.removable_dependencies[j];
+                os << "   " << (j + 1) << ". " << dep.from_target << " → " << dep.to_target;
+                if (!dep.reason.empty()) {
+                    os << " (" << dep.reason << ")";
+                }
+                os << "\n";
+            }
+        }
         
         if (include_suggestions_ && !analysis.suggested_fixes.empty()) {
             os << "└─ 修复建议:\n";
@@ -82,6 +95,18 @@ void OutputReport::GenerateConsoleReport(const std::vector<CycleAnalysis>& cycle
     
     os << "========================================\n";
     os << "总结:\n";
+    
+    // 添加关于可移除依赖的总结
+    int total_removable = 0;
+    for (const auto& cycle : cycles) {
+        total_removable += cycle.removable_dependencies.size();
+    }
+    
+    if (total_removable > 0) {
+        os << "- 发现 " << total_removable << " 个可安全移除的依赖\n";
+        os << "- 移除任一可安全依赖即可打破循环\n";
+    }
+    
     os << "- 建议优先处理小型循环（长度较短的）\n";
     os << "- 直接循环依赖通常更容易修复\n";
     os << "- 复杂循环可能需要重构模块结构\n";
@@ -94,7 +119,7 @@ void OutputReport::GenerateMarkdownReport(const std::vector<CycleAnalysis>& cycl
     os << "- **发现循环数量**: " << cycles.size() << "\n\n";
     
     if (cycles.empty()) {
-        os << "✅ 未发现循环依赖\n";
+        os << "未发现循环依赖\n";
         return;
     }
     
@@ -104,9 +129,21 @@ void OutputReport::GenerateMarkdownReport(const std::vector<CycleAnalysis>& cycl
         const auto& analysis = cycles[i];
         
         os << "### 循环 #" << (i + 1) << "\n\n";
-        os << "- **类型**: `" << analysis.cycle_type << "`\n";  // 现在可以正常输出
+        os << "- **类型**: `" << analysis.cycle_type << "`\n";
         os << "- **路径**: `" << FormatCyclePath(analysis.cycle) << "`\n";
         os << "- **长度**: " << analysis.cycle.size() << " 个目标\n";
+        
+        // 添加可移除依赖
+        if (!analysis.removable_dependencies.empty()) {
+            os << "- **可安全移除的依赖**:\n";
+            for (const auto& dep : analysis.removable_dependencies) {
+                os << "  - `" << dep.from_target << "` → `" << dep.to_target << "`";
+                if (!dep.reason.empty()) {
+                    os << " (" << dep.reason << ")";
+                }
+                os << "\n";
+            }
+        }
         
         if (include_suggestions_ && !analysis.suggested_fixes.empty()) {
             os << "- **修复建议**:\n";
@@ -137,9 +174,9 @@ void OutputReport::GenerateMarkdownReport(const std::vector<CycleAnalysis>& cycl
     
     os << "| 优先级 | 循环大小 | 数量 | 建议 |\n";
     os << "|--------|----------|------|------|\n";
-    os << "| 🔴 高 | 小型 (2-3个目标) | " << small_cycles.size() << " | 易于修复，建议优先处理 |\n";
-    os << "| 🟡 中 | 中型 (4-5个目标) | " << medium_cycles.size() << " | 需要一些重构工作 |\n";
-    os << "| 🟢 低 | 大型 (6+个目标) | " << large_cycles.size() << " | 可能涉及架构调整 |\n";
+    os << "| 高 | 小型 (2-3个目标) | " << small_cycles.size() << " | 易于修复，建议优先处理 |\n";
+    os << "| 中 | 中型 (4-5个目标) | " << medium_cycles.size() << " | 需要一些重构工作 |\n";
+    os << "| 低 | 大型 (6+个目标) | " << large_cycles.size() << " | 可能涉及架构调整 |\n";
 }
 
 void OutputReport::GenerateJsonReport(const std::vector<CycleAnalysis>& cycles, std::ostream& os) {
@@ -154,7 +191,7 @@ void OutputReport::GenerateJsonReport(const std::vector<CycleAnalysis>& cycles, 
         
         os << "      {\n";
         os << "        \"id\": " << (i + 1) << ",\n";
-        os << "        \"type\": \"" << analysis.cycle_type << "\",\n";  // 现在可以正常输出
+        os << "        \"type\": \"" << analysis.cycle_type << "\",\n";
         os << "        \"length\": " << analysis.cycle.size() << ",\n";
         os << "        \"path\": [\n";
         
@@ -165,6 +202,23 @@ void OutputReport::GenerateJsonReport(const std::vector<CycleAnalysis>& cycles, 
         }
         
         os << "        ]";
+        
+        // 添加可移除依赖
+        if (!analysis.removable_dependencies.empty()) {
+            os << ",\n        \"removable_dependencies\": [\n";
+            for (size_t j = 0; j < analysis.removable_dependencies.size(); ++j) {
+                const auto& dep = analysis.removable_dependencies[j];
+                os << "          {\n";
+                os << "            \"from\": \"" << EscapeJsonString(dep.from_target) << "\",\n";
+                os << "            \"to\": \"" << EscapeJsonString(dep.to_target) << "\",\n";
+                os << "            \"reason\": \"" << EscapeJsonString(dep.reason) << "\",\n";
+                os << "            \"confidence\": \"" << ConfidenceLevelToString(dep.confidence) << "\"\n";
+                os << "          }";
+                if (j < analysis.removable_dependencies.size() - 1) os << ",";
+                os << "\n";
+            }
+            os << "        ]";
+        }
         
         if (include_suggestions_ && !analysis.suggested_fixes.empty()) {
             os << ",\n        \"suggestions\": [\n";
@@ -201,6 +255,7 @@ void OutputReport::GenerateHtmlReport(const std::vector<CycleAnalysis>& cycles, 
     os << "    .cycle.small { border-left: 4px solid #e74c3c; }\n";
     os << "    .cycle.medium { border-left: 4px solid #f39c12; }\n";
     os << "    .cycle.large { border-left: 4px solid #27ae60; }\n";
+    os << "    .removable-dep { background: #e8f5e8; padding: 8px; margin: 5px 0; border-radius: 3px; border-left: 3px solid #2ecc71; }\n";
     os << "    .suggestion { background: #f8f9fa; padding: 8px; margin: 5px 0; border-radius: 3px; }\n";
     os << "    .path { font-family: monospace; background: #f1f1f1; padding: 5px; }\n";
     os << "  </style>\n";
@@ -213,7 +268,7 @@ void OutputReport::GenerateHtmlReport(const std::vector<CycleAnalysis>& cycles, 
     os << "  </div>\n";
     
     if (cycles.empty()) {
-        os << "  <p>✅ 未发现循环依赖</p>\n";
+        os << "  <p>未发现循环依赖</p>\n";
     } else {
         for (size_t i = 0; i < cycles.size(); ++i) {
             const auto& analysis = cycles[i];
@@ -223,9 +278,23 @@ void OutputReport::GenerateHtmlReport(const std::vector<CycleAnalysis>& cycles, 
             else cycle_class += "large";
             
             os << "  <div class=\"" << cycle_class << "\">\n";
-            os << "    <h3>循环 #" << (i + 1) << " - " << analysis.cycle_type << "</h3>\n";  // 现在可以正常输出
+            os << "    <h3>循环 #" << (i + 1) << " - " << analysis.cycle_type << "</h3>\n";
             os << "    <p><strong>路径:</strong> <span class=\"path\">" << FormatCyclePath(analysis.cycle) << "</span></p>\n";
             os << "    <p><strong>长度:</strong> " << analysis.cycle.size() << " 个目标</p>\n";
+            
+            // 添加可移除依赖
+            if (!analysis.removable_dependencies.empty()) {
+                os << "    <div>\n";
+                os << "      <strong>可安全移除的依赖:</strong>\n";
+                for (const auto& dep : analysis.removable_dependencies) {
+                    os << "      <div class=\"removable-dep\">" << dep.from_target << " → " << dep.to_target;
+                    if (!dep.reason.empty()) {
+                        os << " (" << dep.reason << ")";
+                    }
+                    os << "</div>\n";
+                }
+                os << "    </div>\n";
+            }
             
             if (include_suggestions_ && !analysis.suggested_fixes.empty()) {
                 os << "    <div>\n";
@@ -257,6 +326,15 @@ std::string OutputReport::FormatCyclePath(const std::vector<std::string>& cycle)
         ss << " → " << cycle[0];
     }
     return ss.str();
+}
+
+std::string OutputReport::ConfidenceLevelToString(const ConfidenceLevel level) {
+    switch (level) {
+        case ConfidenceLevel::HIGH: return "HIGH";
+        case ConfidenceLevel::MEDIUM: return "MEDIUM";
+        case ConfidenceLevel::LOW: return "LOW";
+        default: return "UNKNOWN";
+    }
 }
 
 std::string OutputReport::EscapeJsonString(const std::string& str) const {

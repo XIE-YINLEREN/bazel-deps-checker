@@ -45,17 +45,29 @@ private:
     
     // 解析单个目标
     BazelTarget ParseTargetFromLabelKind(const std::string& line);
+
+    // 查询目标详细信息
     void QueryTargetDetails(BazelTarget& target);
     
-    // 工具方法
+    // 转换Bazel标签为实际文件路径
+    std::string ConvertBazelLabelToPath(const std::string& bazel_label);
+
+    // 文本处理
     std::vector<std::string> SplitLines(const std::string& input);
-    std::string ExtractTargetName(const std::string& target_label);
+
+    // 提取规则类型
     std::string ExtractRuleType(const std::string& kind_output);
+
+    // 提取依赖列表
     std::vector<std::string> ExtractDependencies(const std::string& target_label, const std::string& deps_output);
+
+    // 回退解析所有目标
     std::unordered_map<std::string, BazelTarget> ParseAllTargetsFallback();
     
     // 目录管理
     void ChangeToWorkspaceDirectory();
+
+    // 恢复原始目录
     void RestoreOriginalDirectory();
     
     // 环境验证

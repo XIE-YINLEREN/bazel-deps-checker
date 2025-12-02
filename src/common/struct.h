@@ -11,6 +11,7 @@ struct BazelTarget {
     std::string rule_type;
     std::vector<std::string> deps;
     std::vector<std::string> srcs;
+    std::vector<std::string> hdrs;
     bool empty() const { return name.empty(); }
 };
 

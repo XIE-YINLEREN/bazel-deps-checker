@@ -6,8 +6,8 @@
 #include <string_view>
 #include <iostream>
 
-CycleDetector::CycleDetector(const DependencyGraph& graph, std::unordered_map<std::string, BazelTarget> targets) 
-    : graph_(graph), targets_(std::move(targets)) {
+CycleDetector::CycleDetector(const DependencyGraph& graph, const std::unordered_map<std::string, BazelTarget>& targets) 
+    : graph_(graph), targets_(targets) {
     source_analyzer_ = std::make_shared<SourceAnalyzer>(targets_);
 }
 
@@ -104,7 +104,9 @@ void CycleDetector::AnalyzeRemovableDependencies(CycleAnalysis& analysis) const 
     }
 }
 
-std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtCodeLevel(const std::string& from, const std::string& to) const {
+std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtCodeLevel(
+    const std::string& from, const std::string& to) const {
+    
     std::vector<RemovableDependency> results;
     
     if (!source_analyzer_) {
@@ -177,27 +179,21 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtTargetLevel(
     
     // 检查二进制目标依赖
     if (from_target.rule_type == "cc_binary" && to_target.rule_type == "cc_library") {
-        // 二进制文件依赖库，通常是必要的
-        // 但可以检查是否有未使用的依赖
+        // @TODO 
     }
     
     return results;
 }
 
 ConfidenceLevel CycleDetector::CalculateConfidence(const RemovableDependency& dep) const {
+    
     // 根据证据数量和分析层面计算置信度
-    
-    if (!dep.unused_headers.empty() || !dep.unused_symbols.empty()) {
-        // 有具体的代码级别证据
+    if (dep.reason.find("headers") != std::string::npos) {
         return ConfidenceLevel::HIGH;
     }
     
-    if (dep.reason.find("代码级别") != std::string::npos) {
-        return ConfidenceLevel::HIGH;
-    }
-    
-    if (dep.reason.find("Target级别") != std::string::npos) {
-        // Target级别分析通常置信度较低
+    // Target级别分析通常置信度较低
+    if (dep.reason.find("target") != std::string::npos) {
         return ConfidenceLevel::MEDIUM;
     }
     
@@ -294,26 +290,6 @@ std::string CycleDetector::GenerateFixSuggestion(const CycleAnalysis& analysis) 
                 ss << " (" << removable.reason << ")";
             }
             ss << "\n";
-            
-            // 显示未使用的头文件
-            if (!removable.unused_headers.empty()) {
-                ss << "     未使用头文件: ";
-                for (size_t i = 0; i < removable.unused_headers.size(); ++i) {
-                    if (i > 0) ss << ", ";
-                    ss << removable.unused_headers[i];
-                }
-                ss << "\n";
-            }
-            
-            // 显示未使用的符号
-            if (!removable.unused_symbols.empty()) {
-                ss << "     未使用符号: ";
-                for (size_t i = 0; i < removable.unused_symbols.size(); ++i) {
-                    if (i > 0) ss << ", ";
-                    ss << removable.unused_symbols[i];
-                }
-                ss << "\n";
-            }
         }
         ss << "   删除上述任一依赖即可打破循环\n";
     }

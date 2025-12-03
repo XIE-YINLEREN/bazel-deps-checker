@@ -61,7 +61,7 @@ public:
     // 获取目标的可移除依赖列表
     std::vector<RemovableDependency> GetRemovableDependencies(const std::string& target_name);
     
-    // 获取目标包含的所有头文件（递归）
+    // 获取目标包含的所有头文件
     const std::unordered_set<std::string>& GetTargetIncludedHeaders(const std::string& target_name);
     
     // 获取目标提供的所有头文件
@@ -80,16 +80,16 @@ public:
     void ClearTargetCache(const std::string& target_name);
     
 private:
-    // 确保目标已分析（线程安全）
+    // 确保目标已分析
     void EnsureTargetAnalyzed(const std::string& target_name);
     
-    // 解析源文件（提取包含的头文件）
+    // 解析源文件
     bool ParseSourceFile(const std::string& file_path, SourceInfo& result);
     
-    // 解析头文件（提取包含的其他头文件）
+    // 解析头文件
     bool ParseHeaderFile(const std::string& file_path, HeaderInfo& result);
     
-    // 递归分析头文件包含关系（使用栈避免递归）
+    // 递归分析头文件包含关系
     void RecursivelyAnalyzeHeaderIncludes(const std::string& source_file,
                                          const std::unordered_set<std::string>& direct_includes,
                                          TargetAnalysis& analysis);
@@ -103,7 +103,7 @@ private:
     // 去除字符串两端的空白字符
     std::string Trim(const std::string& str) const;
     
-    // 获取文件扩展名（小写）- 使用字符串操作避免 std::filesystem 问题
+    // 获取文件扩展名
     std::string GetFileExtension(const std::string& file_path) const;
     
     // 判断是否为源文件扩展名

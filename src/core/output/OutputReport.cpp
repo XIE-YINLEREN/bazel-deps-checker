@@ -321,10 +321,7 @@ std::string OutputReport::FormatCyclePath(const std::vector<std::string>& cycle)
             ss << " → ";
         }
     }
-    // 闭合循环
-    if (!cycle.empty()) {
-        ss << " → " << cycle[0];
-    }
+
     return ss.str();
 }
 

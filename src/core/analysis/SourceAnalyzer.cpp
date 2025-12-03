@@ -24,13 +24,13 @@ void SourceAnalyzer::AnalyzeTarget(const std::string& target_name) {
     TargetAnalysis analysis;
     
     // 首先收集目标提供的头文件
-    for (const auto& src : target.srcs) {
-        std::string extension = GetFileExtension(src);
+    for (const auto& hdrs : target.hdrs) {
+        std::string extension = GetFileExtension(hdrs);
         if (IsHeaderFileExtension(extension)) {
             // 提取头文件名
-            size_t last_slash = src.find_last_of('/');
+            size_t last_slash = hdrs.find_last_of('/');
             std::string header_name = (last_slash != std::string::npos) ? 
-                src.substr(last_slash + 1) : src;
+                hdrs.substr(last_slash + 1) : hdrs;
             analysis.provided_headers.insert(header_name);
         }
     }

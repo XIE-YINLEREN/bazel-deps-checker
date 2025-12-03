@@ -55,9 +55,7 @@ public:
     // 分析所有循环依赖
     std::vector<CycleAnalysis> AnalyzeCycles();
     
-    // 生成修复建议字符串
-    std::string GenerateFixSuggestion(const CycleAnalysis& analysis) const;
-    
+    std::vector<RemovableDependency> AnalyzeUnusedDependencies();
 private:
     // 分类单个循环
     CycleAnalysis ClassifyCycle(const std::vector<std::string>& cycle) const;

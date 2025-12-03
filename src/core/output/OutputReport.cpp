@@ -4,13 +4,22 @@
 #include <iomanip>
 #include <ctime>
 #include <iostream>
+#include <unordered_map>
 
-OutputReport OutputReport::getInstance() {
-    static OutputReport instance;
+OutputReport* OutputReport::instance = nullptr;
+
+OutputReport* OutputReport::getInstance() {
+    if (!instance) {
+        instance = new OutputReport();
+    }
     return instance;
 }
 
-void OutputReport::GenerateReport(const std::vector<CycleAnalysis>& cycles, const OutputFormat& format) {
+OutputReport::~OutputReport () {
+    delete instance;
+}
+
+void OutputReport::GenerateCycleReport(const std::vector<CycleAnalysis>& cycles, const OutputFormat& format) {
     if (output_path_.empty()) {
         // 如果没有指定输出路径，输出到标准输出
         GenerateReport(cycles, format, std::cout);
@@ -24,6 +33,24 @@ void OutputReport::GenerateReport(const std::vector<CycleAnalysis>& cycles, cons
             std::cerr << "Error: Cannot open output file: " << output_path_ << std::endl;
             // 回退到标准输出
             GenerateReport(cycles, format, std::cout);
+        }
+    }
+}
+
+void OutputReport::GenerateUnusedDependenciesReport(const std::vector<RemovableDependency>& unused_dependencies, const OutputFormat& format) {
+    if (output_path_.empty()) {
+        // 如果没有指定输出路径，输出到标准输出
+        GenerateUnusedDependenciesReport(unused_dependencies, format, std::cout);
+    } else {
+        // 输出到文件
+        std::ofstream file(output_path_);
+        if (file.is_open()) {
+            GenerateUnusedDependenciesReport(unused_dependencies, format, file);
+            file.close();
+        } else {
+            std::cerr << "Error: Cannot open output file: " << output_path_ << std::endl;
+            // 回退到标准输出
+            GenerateUnusedDependenciesReport(unused_dependencies, format, std::cout);
         }
     }
 }
@@ -47,6 +74,305 @@ void OutputReport::GenerateReport(const std::vector<CycleAnalysis>& cycles, cons
             break;
     }
 }
+
+void OutputReport::GenerateUnusedDependenciesReport(const std::vector<RemovableDependency>& unused_dependencies, const OutputFormat& format, std::ostream& output_stream) {
+    switch (format) {
+        case OutputFormat::CONSOLE:
+            GenerateUnusedDependenciesConsoleReport(unused_dependencies, output_stream);
+            break;
+        case OutputFormat::MARKDOWN:
+            GenerateUnusedDependenciesMarkdownReport(unused_dependencies, output_stream);
+            break;
+        case OutputFormat::JSON:
+            GenerateUnusedDependenciesJsonReport(unused_dependencies, output_stream);
+            break;
+        case OutputFormat::HTML:
+            GenerateUnusedDependenciesHtmlReport(unused_dependencies, output_stream);
+            break;
+        default:
+            GenerateUnusedDependenciesConsoleReport(unused_dependencies, output_stream);
+            break;
+    }
+}
+
+
+void OutputReport::GenerateUnusedDependenciesConsoleReport(const std::vector<RemovableDependency>& unused_dependencies, std::ostream& os) {
+    if (unused_dependencies.empty()) {
+        os << "✓ 未发现可移除的依赖\n";
+        return;
+    }
+    
+    os << "========================================\n";
+    os << "   未使用依赖分析报告\n";
+    os << "   生成时间: " << GetCurrentTimestamp() << "\n";
+    os << "   发现未使用依赖数量: " << unused_dependencies.size() << "\n";
+    os << "========================================\n\n";
+    
+    // 按来源目标分组
+    std::unordered_map<std::string, std::vector<const RemovableDependency*>> grouped_deps;
+    for (const auto& dep : unused_dependencies) {
+        grouped_deps[dep.from_target].push_back(&dep);
+    }
+    
+    // 输出分组后的依赖
+    for (const auto& [from_target, deps] : grouped_deps) {
+        os << "目标: " << from_target << "\n";
+        os << "├─ 可移除依赖数量: " << deps.size() << "\n";
+        os << "├─ 可移除依赖列表:\n";
+        
+        for (size_t i = 0; i < deps.size(); ++i) {
+            const auto& dep = *deps[i];
+            os << "   " << (i + 1) << ". " << dep.to_target;
+            if (!dep.reason.empty()) {
+                os << " (" << dep.reason << ")";
+            }
+            os << " [置信度: " << ConfidenceLevelToString(dep.confidence) << "]\n";
+        }
+        os << "\n";
+    }
+    
+    // 统计信息
+    int high_confidence = 0;
+    int medium_confidence = 0;
+    int low_confidence = 0;
+    
+    for (const auto& dep : unused_dependencies) {
+        switch (dep.confidence) {
+            case ConfidenceLevel::HIGH: high_confidence++; break;
+            case ConfidenceLevel::MEDIUM: medium_confidence++; break;
+            case ConfidenceLevel::LOW: low_confidence++; break;
+        }
+    }
+    
+    os << "========================================\n";
+    os << "统计信息:\n";
+    os << "- 高置信度依赖: " << high_confidence << " 个\n";
+    os << "- 中置信度依赖: " << medium_confidence << " 个\n";
+    os << "- 低置信度依赖: " << low_confidence << " 个\n\n";
+    
+    os << "操作建议:\n";
+    os << "1. 高置信度依赖可以安全移除\n";
+    os << "2. 中置信度依赖建议进一步验证\n";
+    os << "3. 低置信度依赖需要谨慎处理\n";
+    os << "========================================\n";
+}
+
+void OutputReport::GenerateUnusedDependenciesMarkdownReport(const std::vector<RemovableDependency>& unused_dependencies, std::ostream& os) {
+    os << "# 未使用依赖分析报告\n\n";
+    os << "- **生成时间**: " << GetCurrentTimestamp() << "\n";
+    os << "- **发现未使用依赖数量**: " << unused_dependencies.size() << "\n\n";
+    
+    if (unused_dependencies.empty()) {
+        os << "✓ 未发现可移除的依赖\n";
+        return;
+    }
+    
+    os << "## 依赖详情\n\n";
+    
+    // 按来源目标分组
+    std::unordered_map<std::string, std::vector<const RemovableDependency*>> grouped_deps;
+    for (const auto& dep : unused_dependencies) {
+        grouped_deps[dep.from_target].push_back(&dep);
+    }
+    
+    for (const auto& [from_target, deps] : grouped_deps) {
+        os << "### " << from_target << "\n\n";
+        os << "**可移除依赖数量**: " << deps.size() << "\n\n";
+        
+        os << "| 依赖目标 | 移除原因 | 置信度 |\n";
+        os << "|----------|----------|--------|\n";
+        
+        for (const auto& dep : deps) {
+            os << "| " << dep->to_target << " | " << dep->reason << " | " 
+               << ConfidenceLevelToString(dep->confidence) << " |\n";
+        }
+        os << "\n";
+    }
+    
+    // 统计信息
+    int high_confidence = 0;
+    int medium_confidence = 0;
+    int low_confidence = 0;
+    
+    for (const auto& dep : unused_dependencies) {
+        switch (dep.confidence) {
+            case ConfidenceLevel::HIGH: high_confidence++; break;
+            case ConfidenceLevel::MEDIUM: medium_confidence++; break;
+            case ConfidenceLevel::LOW: low_confidence++; break;
+        }
+    }
+    
+    os << "## 统计信息\n\n";
+    os << "- **高置信度依赖**: " << high_confidence << " 个\n";
+    os << "- **中置信度依赖**: " << medium_confidence << " 个\n";
+    os << "- **低置信度依赖**: " << low_confidence << " 个\n\n";
+    
+    os << "## 操作建议\n\n";
+    os << "1. **高置信度依赖**：可以安全移除，移除后应进行编译测试\n";
+    os << "2. **中置信度依赖**：建议进一步验证，检查是否存在间接依赖关系\n";
+    os << "3. **低置信度依赖**：需要谨慎处理，可能需要深入分析源代码\n";
+}
+
+void OutputReport::GenerateUnusedDependenciesJsonReport(const std::vector<RemovableDependency>& unused_dependencies, std::ostream& os) {
+    os << "{\n";
+    os << "  \"unused_dependencies_report\": {\n";
+    os << "    \"timestamp\": \"" << GetCurrentTimestamp() << "\",\n";
+    os << "    \"total_unused_dependencies\": " << unused_dependencies.size() << ",\n";
+    
+    // 统计信息
+    int high_confidence = 0;
+    int medium_confidence = 0;
+    int low_confidence = 0;
+    
+    for (const auto& dep : unused_dependencies) {
+        switch (dep.confidence) {
+            case ConfidenceLevel::HIGH: high_confidence++; break;
+            case ConfidenceLevel::MEDIUM: medium_confidence++; break;
+            case ConfidenceLevel::LOW: low_confidence++; break;
+        }
+    }
+    
+    os << "    \"statistics\": {\n";
+    os << "      \"high_confidence\": " << high_confidence << ",\n";
+    os << "      \"medium_confidence\": " << medium_confidence << ",\n";
+    os << "      \"low_confidence\": " << low_confidence << "\n";
+    os << "    },\n";
+    
+    // 按来源目标分组
+    std::unordered_map<std::string, std::vector<const RemovableDependency*>> grouped_deps;
+    for (const auto& dep : unused_dependencies) {
+        grouped_deps[dep.from_target].push_back(&dep);
+    }
+    
+    os << "    \"grouped_dependencies\": [\n";
+    bool first_group = true;
+    for (const auto& [from_target, deps] : grouped_deps) {
+        if (!first_group) os << ",\n";
+        first_group = false;
+        
+        os << "      {\n";
+        os << "        \"from_target\": \"" << EscapeJsonString(from_target) << "\",\n";
+        os << "        \"count\": " << deps.size() << ",\n";
+        os << "        \"dependencies\": [\n";
+        
+        for (size_t i = 0; i < deps.size(); ++i) {
+            const auto& dep = *deps[i];
+            if (i > 0) os << ",\n";
+            os << "          {\n";
+            os << "            \"to_target\": \"" << EscapeJsonString(dep.to_target) << "\",\n";
+            os << "            \"reason\": \"" << EscapeJsonString(dep.reason) << "\",\n";
+            os << "            \"confidence\": \"" << ConfidenceLevelToString(dep.confidence) << "\"\n";
+            os << "          }";
+        }
+        os << "\n        ]\n";
+        os << "      }";
+    }
+    os << "\n    ]\n";
+    os << "  }\n";
+    os << "}\n";
+}
+
+void OutputReport::GenerateUnusedDependenciesHtmlReport(const std::vector<RemovableDependency>& unused_dependencies, std::ostream& os) {
+    os << "<!DOCTYPE html>\n";
+    os << "<html lang=\"zh-CN\">\n";
+    os << "<head>\n";
+    os << "  <meta charset=\"UTF-8\">\n";
+    os << "  <title>未使用依赖分析报告</title>\n";
+    os << "  <style>\n";
+    os << "    body { font-family: Arial, sans-serif; margin: 20px; }\n";
+    os << "    .header { background: #f5f5f5; padding: 20px; border-radius: 5px; }\n";
+    os << "    .target-group { border: 1px solid #ddd; margin: 15px 0; padding: 15px; border-radius: 5px; }\n";
+    os << "    .dependency { background: #f8f9fa; padding: 8px; margin: 5px 0; border-radius: 3px; }\n";
+    os << "    .confidence-high { border-left: 4px solid #27ae60; }\n";
+    os << "    .confidence-medium { border-left: 4px solid #f39c12; }\n";
+    os << "    .confidence-low { border-left: 4px solid #e74c3c; }\n";
+    os << "    .statistics { background: #e8f4f8; padding: 15px; border-radius: 5px; margin: 20px 0; }\n";
+    os << "    .stat-item { display: inline-block; margin-right: 30px; }\n";
+    os << "    .stat-value { font-size: 24px; font-weight: bold; }\n";
+    os << "  </style>\n";
+    os << "</head>\n";
+    os << "<body>\n";
+    os << "  <div class=\"header\">\n";
+    os << "    <h1>未使用依赖分析报告</h1>\n";
+    os << "    <p><strong>生成时间:</strong> " << GetCurrentTimestamp() << "</p>\n";
+    os << "    <p><strong>发现未使用依赖数量:</strong> " << unused_dependencies.size() << "</p>\n";
+    os << "  </div>\n";
+    
+    if (unused_dependencies.empty()) {
+        os << "  <p>✓ 未发现可移除的依赖</p>\n";
+    } else {
+        // 按来源目标分组
+        std::unordered_map<std::string, std::vector<const RemovableDependency*>> grouped_deps;
+        for (const auto& dep : unused_dependencies) {
+            grouped_deps[dep.from_target].push_back(&dep);
+        }
+        
+        // 统计信息
+        int high_confidence = 0;
+        int medium_confidence = 0;
+        int low_confidence = 0;
+        
+        for (const auto& dep : unused_dependencies) {
+            switch (dep.confidence) {
+                case ConfidenceLevel::HIGH: high_confidence++; break;
+                case ConfidenceLevel::MEDIUM: medium_confidence++; break;
+                case ConfidenceLevel::LOW: low_confidence++; break;
+            }
+        }
+        
+        os << "  <div class=\"statistics\">\n";
+        os << "    <h3>统计信息</h3>\n";
+        os << "    <div class=\"stat-item\">\n";
+        os << "      <div class=\"stat-value\" style=\"color: #27ae60;\">" << high_confidence << "</div>\n";
+        os << "      <div>高置信度</div>\n";
+        os << "    </div>\n";
+        os << "    <div class=\"stat-item\">\n";
+        os << "      <div class=\"stat-value\" style=\"color: #f39c12;\">" << medium_confidence << "</div>\n";
+        os << "      <div>中置信度</div>\n";
+        os << "    </div>\n";
+        os << "    <div class=\"stat-item\">\n";
+        os << "      <div class=\"stat-value\" style=\"color: #e74c3c;\">" << low_confidence << "</div>\n";
+        os << "      <div>低置信度</div>\n";
+        os << "    </div>\n";
+        os << "  </div>\n";
+        
+        for (const auto& [from_target, deps] : grouped_deps) {
+            os << "  <div class=\"target-group\">\n";
+            os << "    <h3>" << from_target << " <small>(" << deps.size() << " 个可移除依赖)</small></h3>\n";
+            
+            for (const auto& dep : deps) {
+                std::string confidence_class;
+                switch (dep->confidence) {
+                    case ConfidenceLevel::HIGH: confidence_class = "confidence-high"; break;
+                    case ConfidenceLevel::MEDIUM: confidence_class = "confidence-medium"; break;
+                    case ConfidenceLevel::LOW: confidence_class = "confidence-low"; break;
+                }
+                
+                os << "    <div class=\"dependency " << confidence_class << "\">\n";
+                os << "      <strong>→ " << dep->to_target << "</strong><br>\n";
+                os << "      <span>" << dep->reason << "</span><br>\n";
+                os << "      <small>置信度: " << ConfidenceLevelToString(dep->confidence) << "</small>\n";
+                os << "    </div>\n";
+            }
+            
+            os << "  </div>\n";
+        }
+        
+        os << "  <div style=\"margin-top: 30px; padding: 15px; background: #f8f9fa; border-radius: 5px;\">\n";
+        os << "    <h3>操作建议</h3>\n";
+        os << "    <ol>\n";
+        os << "      <li><strong>高置信度依赖</strong>：可以安全移除，移除后应进行编译测试</li>\n";
+        os << "      <li><strong>中置信度依赖</strong>：建议进一步验证，检查是否存在间接依赖关系</li>\n";
+        os << "      <li><strong>低置信度依赖</strong>：需要谨慎处理，可能需要深入分析源代码</li>\n";
+        os << "    </ol>\n";
+        os << "  </div>\n";
+    }
+    
+    os << "</body>\n";
+    os << "</html>\n";
+}
+
+// ==================== 循环依赖报告生成方法（保持不变） ====================
 
 void OutputReport::GenerateConsoleReport(const std::vector<CycleAnalysis>& cycles, std::ostream& os) {
     if (cycles.empty()) {
@@ -318,6 +644,8 @@ void OutputReport::GenerateHtmlReport(const std::vector<CycleAnalysis>& cycles, 
     os << "</html>\n";
 }
 
+// ==================== 辅助方法 ====================
+
 std::string OutputReport::FormatCyclePath(const std::vector<std::string>& cycle) const {
     std::ostringstream ss;
     for (size_t i = 0; i < cycle.size(); ++i) {
@@ -326,16 +654,15 @@ std::string OutputReport::FormatCyclePath(const std::vector<std::string>& cycle)
             ss << " → ";
         }
     }
-
     return ss.str();
 }
 
-std::string OutputReport::ConfidenceLevelToString(const ConfidenceLevel level) {
+std::string OutputReport::ConfidenceLevelToString(ConfidenceLevel level) {
     switch (level) {
-        case ConfidenceLevel::HIGH: return "HIGH";
-        case ConfidenceLevel::MEDIUM: return "MEDIUM";
-        case ConfidenceLevel::LOW: return "LOW";
-        default: return "UNKNOWN";
+        case ConfidenceLevel::HIGH: return "高";
+        case ConfidenceLevel::MEDIUM: return "中";
+        case ConfidenceLevel::LOW: return "低";
+        default: return "未知";
     }
 }
 

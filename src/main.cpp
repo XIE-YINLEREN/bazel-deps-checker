@@ -26,11 +26,12 @@ int main(int argc, char* argv[]) {
         CycleDetector detector(graph.GetDependencyGraph(), targets);
 
         if (args->execute_function == ExcuteFuction::UNUSED_DEPENDENCY_CHECK) {
-            // auto unused_deps = detector.AnalyzeUnusedDependencies();
+            auto unused_deps = detector.AnalyzeUnusedDependencies();
+            OutputReport::getInstance()->GenerateUnusedDependenciesReport(unused_deps, args->output_format);
         }
         else if (args->execute_function == ExcuteFuction::CYCLIC_DEPENDENCY_DETECTION){
             auto cycles = detector.AnalyzeCycles();
-            OutputReport::getInstance().GenerateReport(cycles, args->output_format);
+            OutputReport::getInstance()->GenerateCycleReport(cycles, args->output_format);
         }
         
     } catch (const std::exception& e) {

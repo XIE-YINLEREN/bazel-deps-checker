@@ -33,6 +33,24 @@ std::vector<CycleAnalysis> CycleDetector::AnalyzeCycles() {
     return analyses;
 }
 
+std::vector<RemovableDependency> CycleDetector::AnalyzeUnusedDependencies() {
+    std::vector<RemovableDependency> all_removable_deps;
+    
+    for (const auto& [target_name, target] : targets_) {
+        auto unused_deps = graph_.FindUnusedDependencies(target_name);
+        for (const auto& dep : unused_deps) {
+            RemovableDependency removable;
+            removable.from_target = target_name;
+            removable.to_target = dep;
+            removable.reason = "未使用的依赖";
+            removable.confidence = ConfidenceLevel::HIGH;
+            all_removable_deps.push_back(removable);
+        }
+    }
+    
+    return all_removable_deps;
+}
+
 CycleAnalysis CycleDetector::ClassifyCycle(const std::vector<std::string>& cycle) const {
     CycleAnalysis analysis;
     analysis.cycle = cycle;
@@ -247,97 +265,6 @@ void CycleDetector::ApplyAdditionalClassifications(CycleAnalysis& analysis) cons
         analysis.suggested_fixes.emplace_back("检查外部依赖版本兼容性");
         analysis.suggested_fixes.emplace_back("考虑使用不同的外部依赖版本");
     }
-}
-
-std::string CycleDetector::GenerateFixSuggestion(const CycleAnalysis& analysis) const {
-    std::ostringstream ss;
-    
-    ss << "循环依赖分析报告:\n"
-       << "循环类型: " << CycleTypeToString(analysis.cycle_type) << "\n"
-       << "涉及目标 (" << analysis.cycle.size() << "个): ";
-    
-    for (size_t i = 0; i < analysis.cycle.size(); ++i) {
-        ss << analysis.cycle[i];
-        if (i < analysis.cycle.size() - 1) ss << " -> ";
-    }
-    ss << "\n\n";
-    
-    // 显示目标详细信息
-    ss << "目标详情:\n";
-    for (const auto& target_name : analysis.cycle) {
-        auto it = targets_.find(target_name);
-        if (it != targets_.end()) {
-            const auto& target = it->second;
-            ss << "  - " << target_name << " (" << target.rule_type << ")\n";
-            ss << "    路径: " << target.path << "\n";
-            ss << "    源文件: " << target.srcs.size() << " 个\n";
-            ss << "    依赖: " << target.deps.size() << " 个\n";
-        }
-    }
-    ss << "\n";
-    
-    ss << "建议修复方案:\n";
-    for (size_t i = 0; i < analysis.suggested_fixes.size(); ++i) {
-        ss << i + 1 << ". " << analysis.suggested_fixes[i] << "\n";
-    }
-    
-    // 如果有可移除的依赖，特别强调
-    if (!analysis.removable_dependencies.empty()) {
-        ss << "\n🔧 快速修复 - 可以安全删除的依赖:\n";
-        for (const auto& removable : analysis.removable_dependencies) {
-            ss << "   - 删除依赖: " << removable.from_target << " -> " << removable.to_target;
-            if (!removable.reason.empty()) {
-                ss << " (" << removable.reason << ")";
-            }
-            ss << "\n";
-        }
-        ss << "   删除上述任一依赖即可打破循环\n";
-    }
-    
-    ss << "\n详细建议:\n";
-    
-    // 根据循环类型提供具体建议
-    switch (analysis.cycle_type) {
-        case CycleType::DIRECT_CYCLE:
-            ss << "直接循环依赖通常可以通过以下方式解决:\n"
-               << "- 将" << analysis.cycle[0] << "和" << analysis.cycle[1] 
-               << "的公共部分提取到新库\n"
-               << "- 使用接口抽象来解耦双向依赖\n";
-            
-            if (auto common_interface = ExtractCommonInterface(analysis.cycle); 
-                !common_interface.empty()) {
-                ss << "- 建议提取公共接口: " << common_interface << "\n";
-            }
-            break;
-            
-        case CycleType::DIAMOND_DEPENDENCY:
-            ss << "菱形依赖解决方案:\n"
-               << "- 识别公共依赖并提取基础模块\n"
-               << "- 使用依赖注入模式\n";
-            break;
-            
-        case CycleType::SIMPLE_CYCLE:
-            if (analysis.cycle.size() == 2) {
-                ss << "双目标循环的快速修复:\n"
-                   << "1. 分析" << analysis.cycle[0] << "和" << analysis.cycle[1] 
-                   << "的依赖关系\n"
-                   << "2. 确定哪个依赖是不必要的\n"
-                   << "3. 修改BUILD文件移除错误依赖\n";
-            }
-            break;
-            
-        case CycleType::COMPLEX_CYCLE:
-            ss << "复杂循环建议:\n"
-               << "- 分析依赖关系，识别核心问题节点\n"
-               << "- 考虑模块重构\n"
-               << "- 引入中介者模式\n";
-            break;
-            
-        default:
-            break;
-    }
-    
-    return ss.str();
 }
 
 bool CycleDetector::IsDirectCycle(const std::vector<std::string>& cycle) const {

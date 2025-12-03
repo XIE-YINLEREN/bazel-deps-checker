@@ -28,9 +28,6 @@ public:
     // 查找未使用的依赖
     std::vector<std::string> FindUnusedDependencies(const std::string& target) const;
     
-    // 导出为DOT格式
-    void ExportToDot(const std::string& output_path) const;
-
     // 查询功能
     bool HasTarget(const std::string& target) const;
 

@@ -1,6 +1,7 @@
 #include "DependencyGraph.h"
 #include <algorithm>
 #include <cctype>
+#include <vector>
 
 DependencyGraph::DependencyGraph(std::unordered_map<std::string, BazelTarget> targets)
     : grap_targets_(std::move(targets)) {
@@ -181,8 +182,7 @@ bool DependencyGraph::IsDependencyUsed(const std::string& dependency,
     return false;
 }
 
-std::unordered_set<std::string> DependencyGraph::GetReverseDependencies(
-    const std::string& target) const {
+std::unordered_set<std::string> DependencyGraph::GetReverseDependencies(const std::string& target) const {
     auto it = reverse_deps_cache_.find(target);
     if (it != reverse_deps_cache_.end()) {
         return it->second;
@@ -190,40 +190,11 @@ std::unordered_set<std::string> DependencyGraph::GetReverseDependencies(
     return {};
 }
 
-void DependencyGraph::ExportToDot(const std::string& output_path) const {
-    std::ofstream dot_file(output_path);
-    if (!dot_file.is_open()) {
-        return;
-    }
-    
-    dot_file << "digraph DependencyGraph {\n";
-    dot_file << "  rankdir=TB;\n";
-    dot_file << "  node [shape=box, style=filled, fillcolor=lightblue];\n";
-    dot_file << "  edge [arrowhead=vee];\n\n";
-    
-    // 添加节点
-    for (const auto& [node, _] : graph_) {
-        dot_file << "  \"" << node << "\";\n";
-    }
-    
-    dot_file << "\n";
-    
-    // 添加边
-    for (const auto& [node, dependencies] : graph_) {
-        for (const auto& dep : dependencies) {
-            dot_file << "  \"" << node << "\" -> \"" << dep << "\";\n";
-        }
-    }
-    
-    dot_file << "}\n";
-}
-
 bool DependencyGraph::HasTarget(const std::string& target) const {
     return graph_.find(target) != graph_.end();
 }
 
-const std::vector<std::string>& DependencyGraph::GetDirectDependencies(
-    const std::string& target) const {
+const std::vector<std::string>& DependencyGraph::GetDirectDependencies(const std::string& target) const {
     static const std::vector<std::string> empty_deps;
     
     auto it = graph_.find(target);

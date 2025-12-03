@@ -24,11 +24,14 @@ int main(int argc, char* argv[]) {
         
         // 3. 分析问题
         CycleDetector detector(graph.GetDependencyGraph(), targets);
-        auto cycles = detector.AnalyzeCycles();
-        
-        // 4. 输出报告
-        OutputReport OutputReporter;
-        OutputReporter.GenerateReport(cycles, args->output_format);
+
+        if (args->execute_function == ExcuteFuction::UNUSED_DEPENDENCY_CHECK) {
+            // auto unused_deps = detector.AnalyzeUnusedDependencies();
+        }
+        else if (args->execute_function == ExcuteFuction::CYCLIC_DEPENDENCY_DETECTION){
+            auto cycles = detector.AnalyzeCycles();
+            OutputReport::getInstance().GenerateReport(cycles, args->output_format);
+        }
         
     } catch (const std::exception& e) {
         std::string log_msg = e.what();

@@ -15,6 +15,11 @@ struct BazelTarget {
     bool empty() const { return name.empty(); }
 };
 
+enum class ExcuteFuction {
+    UNUSED_DEPENDENCY_CHECK,        // 未使用依赖检查
+    CYCLIC_DEPENDENCY_DETECTION     // 循环依赖检测
+};
+
 
 enum class OutputFormat {
     CONSOLE,    // 控制台输出

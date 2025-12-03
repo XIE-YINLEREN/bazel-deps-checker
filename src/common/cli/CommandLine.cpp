@@ -20,6 +20,8 @@ void CommandLineArgs::ParseCommandLine(int argc, char* argv[]) {
             if (i + 1 < argc) {
                 workspace_path = argv[++i];
             }
+        } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-w") == 0) {
+            execute_function = ExcuteFuction::UNUSED_DEPENDENCY_CHECK;
         } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 output_path = argv[++i];
@@ -81,9 +83,11 @@ OutputFormat CommandLineArgs::ParseOutputFormat(const std::string& format_str) c
 
 void CommandLineArgs::PrintHelp() const {
     std::cout << "Bazel Dependency Analyzer\n";
+    std::cout << "Default to using cyclic dependency detection\n";
     std::cout << "Usage: bazel-deps-analyzer [OPTIONS]\n\n";
     std::cout << "Options:\n";
     std::cout << "  -w, --workspace PATH    Bazel workspace path (required)\n";
+    std::cout << "  -u, --unused            Analyzing unwanted dependencies\n";
     std::cout << "  -o, --output FILE       Output file path\n";
     std::cout << "  -f, --format FORMAT     Output format: console, markdown, json, html\n";
     std::cout << "  -v, --verbose           Enable verbose output\n";

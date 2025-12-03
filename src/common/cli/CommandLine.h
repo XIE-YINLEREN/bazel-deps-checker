@@ -43,4 +43,7 @@ public:
 
     // 单例实例
     static CommandLineArgs* CommandLineArgsHandle;
+
+    // 执行功能
+    ExcuteFuction execute_function{ExcuteFuction::CYCLIC_DEPENDENCY_DETECTION};
 };

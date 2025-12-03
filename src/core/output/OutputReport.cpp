@@ -5,6 +5,11 @@
 #include <ctime>
 #include <iostream>
 
+OutputReport OutputReport::getInstance() {
+    static OutputReport instance;
+    return instance;
+}
+
 void OutputReport::GenerateReport(const std::vector<CycleAnalysis>& cycles, const OutputFormat& format) {
     if (output_path_.empty()) {
         // 如果没有指定输出路径，输出到标准输出

@@ -10,8 +10,8 @@
 
 class OutputReport {
 public:
-    OutputReport() = default;
-    
+    static OutputReport getInstance();
+
     void GenerateReport(const std::vector<CycleAnalysis>& cycles, const OutputFormat& format);
     void GenerateReport(const std::vector<CycleAnalysis>& cycles, const OutputFormat& format, std::ostream& output_stream);
     
@@ -25,6 +25,8 @@ private:
     bool include_suggestions_ = true;
     std::string output_path_;
     
+    OutputReport() = default;
+
     // 不同格式的输出方法
     void GenerateConsoleReport(const std::vector<CycleAnalysis>& cycles, std::ostream& os);
     void GenerateMarkdownReport(const std::vector<CycleAnalysis>& cycles, std::ostream& os);

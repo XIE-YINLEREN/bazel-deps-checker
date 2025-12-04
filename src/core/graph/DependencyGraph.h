@@ -9,7 +9,7 @@
 #include <set>
 #include <fstream>
 
-#include "struct.h"
+#include "analysis/SourceAnalyzer.h"
 
 class DependencyGraph {
 public:
@@ -28,15 +28,18 @@ public:
     // 查找未使用的依赖
     std::vector<std::string> FindUnusedDependencies(const std::string& target) const;
     
-    // 查询功能
-    bool HasTarget(const std::string& target) const;
-
     // 获取直接依赖
     const std::vector<std::string>& GetDirectDependencies(const std::string& target) const;
     
     // 未使用依赖检测相关
     std::unordered_set<std::string> GetReverseDependencies(const std::string& target) const;
+
+    // 设置源码分析器
+    void SetSourceAnalyzer(SourceAnalyzer* source_analyzer) const;
 private:
+    // 源代码分析器
+    mutable SourceAnalyzer* source_analyzer_;           
+
     // 目标名称到BazelTarget的映射
     std::unordered_map<std::string, BazelTarget> grap_targets_;
 
@@ -64,6 +67,18 @@ private:
 
     // 检查依赖是否被使用
     bool IsDependencyUsed(const std::string& dependency, const std::string& exclude_target) const;
+
+    // 检查传递依赖是否真正需要
+    bool IsDependencyTrulyNeeded(const std::string& target, const std::string& dependency) const;
+
+    // 检查依赖是否被传递依赖需要
+    bool IsDependencyNeededByTransitiveDeps(const std::string& target, const std::string& dependency) const;
+
+    // 查找所有未使用的依赖
+    std::vector<RemovableDependency> FindAllUnusedDependencies() const;
+
+    // 查找传递冗余依赖
+    std::vector<std::string> FindTransitiveRedundantDependencies(const std::string& target) const;
 };
 
 #endif

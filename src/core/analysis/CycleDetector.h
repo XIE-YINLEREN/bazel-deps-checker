@@ -55,6 +55,7 @@ public:
     // 分析所有循环依赖
     std::vector<CycleAnalysis> AnalyzeCycles();
     
+    // 分析未使用依赖
     std::vector<RemovableDependency> AnalyzeUnusedDependencies();
 private:
     // 分类单个循环

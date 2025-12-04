@@ -9,6 +9,7 @@
 CycleDetector::CycleDetector(const DependencyGraph& graph, const std::unordered_map<std::string, BazelTarget>& targets) 
     : graph_(graph), targets_(targets) {
     source_analyzer_ = std::make_shared<SourceAnalyzer>(targets_);
+    graph_.SetSourceAnalyzer(source_analyzer_.get());
 }
 
 std::vector<CycleAnalysis> CycleDetector::AnalyzeCycles() {

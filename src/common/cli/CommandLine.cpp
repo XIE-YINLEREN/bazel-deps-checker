@@ -15,12 +15,13 @@ CommandLineArgs* CommandLineArgs::GetInstance(int argc, char* argv[]) {
 }
 
 void CommandLineArgs::ParseCommandLine(int argc, char* argv[]) {
+
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--workspace") == 0 || strcmp(argv[i], "-w") == 0) {
             if (i + 1 < argc) {
                 workspace_path = argv[++i];
             }
-        } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-w") == 0) {
+        } else if (strcmp(argv[i], "--unused") == 0 || strcmp(argv[i], "-u") == 0) {
             execute_function = ExcuteFuction::UNUSED_DEPENDENCY_CHECK;
         } else if (strcmp(argv[i], "--output") == 0 || strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {

@@ -1,3 +1,8 @@
 .vscode/
 .cache/
+compile_commands.json
 MODULE.bazel.lock
+bazel-bazel-deps-checker
+bazel-bin
+bazel-out
+bazel-testlogs

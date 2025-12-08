@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "log/logger.h"
+#include "pipe.h"
 #include "struct.h"
 
 
@@ -31,6 +32,9 @@ public:
 
     // 输出路径
     std::string output_path{};
+
+    // 设置bazel命令位置
+    std::string bazel_binary;
 
     // 输出格式
     OutputFormat output_format{OutputFormat::CONSOLE};

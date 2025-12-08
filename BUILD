@@ -8,6 +8,7 @@ cc_library(
     ]),
     hdrs = glob([
         "src/**/*.h",
+        "thirds/nlohmann/json.hpp"
     ]),
     includes = [
         "src",
@@ -15,6 +16,7 @@ cc_library(
         "src/core",
         "src/runtime",
         "src/output",
+        "thirds",
     ],
     copts = [
         "-std=c++17",

@@ -1,10 +1,17 @@
 #include "AdvancedBazelQueryParser.h"
-#include <algorithm>
+#include "pipe.h"
+#include <future>
+#include <vector>
+#include <mutex>
+#include <functional>
+
+namespace fs = std::filesystem;
 
 AdvancedBazelQueryParser::AdvancedBazelQueryParser(
     const std::string& workspace_path, const std::string& bazel_binary)
     : workspace_path(workspace_path), bazel_binary(bazel_binary) {
-    original_dir = std::filesystem::current_path().string();
+    original_dir = fs::current_path().string();
+    query_etr_command = " --keep_going --incompatible_disallow_empty_glob=false ";
 }
 
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWorkspace() {
@@ -22,10 +29,10 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWork
         
     } catch (const std::exception& e) {
         std::cerr << "Comprehensive query failed: " << e.what() 
-                  << ", falling back to individual queries" << std::endl;
+                  << ", falling back to concurrent queries" << std::endl;
         
-        // 回退到逐个查询
-        targets = ParseWithIndividualQueries();
+        // 回退到并发查询
+        targets = ParseWithConcurrentQueries();
     }
 
     RestoreOriginalDirectory();
@@ -33,14 +40,14 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWork
 }
 
 void AdvancedBazelQueryParser::ChangeToWorkspaceDirectory() {
-    if (!workspace_path.empty() && std::filesystem::exists(workspace_path)) {
-        std::filesystem::current_path(workspace_path);
+    if (!workspace_path.empty() && fs::exists(workspace_path)) {
+        fs::current_path(workspace_path);
         LOG_INFO("Changed to workspace directory: " + workspace_path);
     }
 }
 
 void AdvancedBazelQueryParser::RestoreOriginalDirectory() {
-    std::filesystem::current_path(original_dir);
+    fs::current_path(original_dir);
     LOG_INFO("Restored original directory: " + original_dir);
 }
 
@@ -62,7 +69,7 @@ bool AdvancedBazelQueryParser::ValidateBazelEnvironment() {
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWithComprehensiveQuery() {
     std::unordered_map<std::string, BazelTarget> targets;
     
-    std::string query = "query 'kind(\"cc_.* rule\", //...)' --output=label_kind";
+    std::string query = "query 'kind(\"cc_.* rule\", //...)' --output=label_kind" + query_etr_command;
     std::string output = ExecuteBazelCommand(query);
     
     std::vector<std::string> lines = SplitLines(output);
@@ -109,12 +116,70 @@ BazelTarget AdvancedBazelQueryParser::ParseTargetFromLabelKind(const std::string
     return target;
 }
 
+void AdvancedBazelQueryParser::QueryTargetDetails(BazelTarget& target) {
+    try {
+        std::string target_label = target.full_label.empty() ? 
+            target.path + target.name : target.full_label;
+        
+        // 1. 查询规则类型
+        if (target.rule_type.empty()) {
+            try {
+                std::string kind_query = "query 'kind(rule, " + target_label + ")' --output=label_kind" + query_etr_command;
+                std::string kind_output = ExecuteBazelCommand(kind_query);
+                target.rule_type = ExtractRuleType(kind_output);
+            } catch (const std::exception& e) {
+                LOG_WARN("Failed to query rule type for " + target_label + ": " + std::string(e.what()));
+                target.rule_type = "unknown";
+            }
+        }
+        
+        // 2. 查询源文件
+        try {
+            std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label" + query_etr_command;
+            std::string srcs_output = ExecuteBazelCommand(srcs_query);
+            std::vector<std::string> src_labels = SplitLines(srcs_output);
+            
+            for (const auto& src_label : src_labels) {
+                std::string src_path = ConvertBazelLabelToPath(src_label);
+                if (!src_path.empty()) {
+                    target.srcs.push_back(src_path);
+                }
+            }
+            
+            std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label" + query_etr_command;
+            std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
+            std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
+            
+            for (const auto& hdr_label : hdr_labels) {
+                std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
+                if (!hdr_path.empty()) {
+                    target.hdrs.push_back(hdr_path);
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
+        }
+        
+        // 3. 查询直接依赖
+        try {
+            std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label" + query_etr_command;
+            std::string deps_output = ExecuteBazelCommand(deps_query);
+            target.deps = ExtractDependencies(target_label, deps_output);
+        } catch (const std::exception& e) {
+            LOG_WARN("Failed to query dependencies for " + target_label + ": " + std::string(e.what()));
+        }
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Comprehensive query failed for " + target.full_label + ": " + std::string(e.what()));
+    }
+}
+
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWithIndividualQueries() {
     std::unordered_map<std::string, BazelTarget> targets;
     
     try {
         // 获取所有C++相关的目标，而不是所有目标，提高效率
-        std::string targets_output = ExecuteBazelCommand("query 'kind(\"cc_.* rule\", //...)' --output=label");
+        std::string targets_output = ExecuteBazelCommand("query 'kind(\"cc_.* rule\", //...)' --output=label" + query_etr_command);
         std::vector<std::string> target_labels = SplitLines(targets_output);
         
         LOG_INFO("Found " + std::to_string(target_labels.size()) + " C++ targets to query individually");
@@ -165,10 +230,187 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWith
     return targets;
 }
 
+std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWithConcurrentQueries() {
+    std::unordered_map<std::string, BazelTarget> targets;
+    
+    try {
+        // 获取所有C++相关的目标
+        std::string targets_output = ExecuteBazelCommand("query 'kind(\"cc_.* rule\", //...)' --output=label" + query_etr_command);
+        std::vector<std::string> target_labels = SplitLines(targets_output);
+        
+        LOG_INFO("Found " + std::to_string(target_labels.size()) + " C++ targets to query concurrently");
+        
+        // 使用并发处理目标
+        QueryTargetDetailsBatch(target_labels, targets);
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to get target list: " + std::string(e.what()));
+        // 如果C++目标查询失败，回退到并发查询所有目标
+        return ParseAllTargetsConcurrentFallback();
+    }
+    
+    return targets;
+}
+
+void AdvancedBazelQueryParser::QueryTargetDetailsBatch(const std::vector<std::string>& target_labels,
+                                                      std::unordered_map<std::string, BazelTarget>& targets) {
+    const size_t batch_size = std::min(target_labels.size(), static_cast<size_t>(std::thread::hardware_concurrency() * 4));
+    std::vector<std::future<std::vector<BazelTarget>>> futures;
+    
+    // 分批处理目标
+    for (size_t i = 0; i < target_labels.size(); i += batch_size) {
+        size_t end = std::min(i + batch_size, target_labels.size());
+        std::vector<std::string> batch(target_labels.begin() + i, target_labels.begin() + end);
+        
+        // 异步处理每个批次
+        futures.push_back(std::async(std::launch::async, [this, batch]() {
+            return ProcessTargetBatch(batch);
+        }));
+    }
+    
+    // 收集结果
+    std::mutex targets_mutex;
+    for (auto& future : futures) {
+        try {
+            auto batch_results = future.get();
+            {
+                std::lock_guard<std::mutex> lock(targets_mutex);
+                for (auto& target : batch_results) {
+                    if (!target.empty()) {
+                        targets[target.full_label] = std::move(target);
+                    }
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_ERROR("Batch processing failed: " + std::string(e.what()));
+        }
+    }
+}
+
+std::vector<BazelTarget> AdvancedBazelQueryParser::ProcessTargetBatch(const std::vector<std::string>& batch_labels) {
+    std::vector<BazelTarget> batch_results;
+    batch_results.reserve(batch_labels.size());
+    
+    for (const auto& label : batch_labels) {
+        try {
+            auto target = ProcessSingleTarget(label);
+            if (!target.empty()) {
+                batch_results.push_back(std::move(target));
+            }
+        } catch (const std::exception& e) {
+            LOG_ERROR("Failed to process target " + label + ": " + std::string(e.what()));
+        }
+    }
+    
+    return batch_results;
+}
+
+BazelTarget AdvancedBazelQueryParser::ProcessSingleTarget(const std::string& label) {
+    BazelTarget target;
+    target.full_label = label;
+    
+    // 解析路径和名称
+    size_t last_colon = label.find_last_of(':');
+    std::string target_path;
+    if (last_colon != std::string::npos) {
+        target_path = label.substr(0, last_colon);
+        target.name = label.substr(last_colon + 1);
+    } else {
+        target_path = label;
+        size_t last_slash = label.find_last_of('/');
+        target.name = (last_slash != std::string::npos) ? label.substr(last_slash + 1) : label;
+    }
+    
+    target.path = ConvertBazelLabelToPath(target_path);
+    
+    // 并发查询目标详情
+    QueryTargetDetailsConcurrent(target);
+    
+    return target;
+}
+
+void AdvancedBazelQueryParser::QueryTargetDetailsConcurrent(BazelTarget& target) {
+    try {
+        std::string target_label = target.full_label.empty() ? 
+            target.path + target.name : target.full_label;
+        
+        // 并发执行多个查询
+        std::vector<std::future<void>> futures;
+        
+        // 1. 查询规则类型
+        if (target.rule_type.empty()) {
+            futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
+                try {
+                    std::string kind_query = "query 'kind(rule, " + target_label + ")' --output=label_kind" + query_etr_command;
+                    std::string kind_output = ExecuteBazelCommand(kind_query);
+                    target.rule_type = ExtractRuleType(kind_output);
+                } catch (const std::exception& e) {
+                    LOG_WARN("Failed to query rule type for " + target_label + ": " + std::string(e.what()));
+                    target.rule_type = "unknown";
+                }
+            }));
+        }
+        
+        // 2. 查询源文件
+        futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
+            try {
+                std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label" + query_etr_command;
+                std::string srcs_output = ExecuteBazelCommand(srcs_query);
+                std::vector<std::string> src_labels = SplitLines(srcs_output);
+                
+                std::vector<std::string> srcs;
+                for (const auto& src_label : src_labels) {
+                    std::string src_path = ConvertBazelLabelToPath(src_label);
+                    if (!src_path.empty()) {
+                        srcs.push_back(src_path);
+                    }
+                }
+                
+                std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label" + query_etr_command;
+                std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
+                std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
+                
+                std::vector<std::string> hdrs;
+                for (const auto& hdr_label : hdr_labels) {
+                    std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
+                    if (!hdr_path.empty()) {
+                        hdrs.push_back(hdr_path);
+                    }
+                }
+                
+                // 更新目标
+                target.srcs = std::move(srcs);
+                target.hdrs = std::move(hdrs);
+            } catch (const std::exception& e) {
+                LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
+            }
+        }));
+        
+        // 3. 查询依赖
+        futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
+            try {
+                std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label" + query_etr_command;
+                std::string deps_output = ExecuteBazelCommand(deps_query);
+                target.deps = ExtractDependencies(target_label, deps_output);
+            } catch (const std::exception& e) {
+                LOG_WARN("Failed to query dependencies for " + target_label + ": " + std::string(e.what()));
+            }
+        }));
+        
+        // 等待所有查询完成
+        for (auto& future : futures) {
+            future.get();
+        }
+        
+    } catch (const std::exception& e) {
+        LOG_ERROR("Concurrent query failed for " + target.full_label + ": " + std::string(e.what()));
+    }
+}
+
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllTargetsFallback() {
     std::unordered_map<std::string, BazelTarget> targets;
     
-    std::string targets_output = ExecuteBazelCommand("query '//...' --output=label");
+    std::string targets_output = ExecuteBazelCommand("query '//...' --output=label" + query_etr_command);
     std::vector<std::string> target_labels = SplitLines(targets_output);
     
     LOG_INFO("Fallback: Found " + std::to_string(target_labels.size()) + " total targets to query");
@@ -215,62 +457,36 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllT
     return targets;
 }
 
-void AdvancedBazelQueryParser::QueryTargetDetails(BazelTarget& target) {
-    try {
-        std::string target_label = target.full_label.empty() ? 
-            target.path + target.name : target.full_label;
-        
-        // 1. 查询规则类型
-        if (target.rule_type.empty()) {
-            try {
-                std::string kind_query = "query 'kind(rule, " + target_label + ")' --output=label_kind";
-                std::string kind_output = ExecuteBazelCommand(kind_query);
-                target.rule_type = ExtractRuleType(kind_output);
-            } catch (const std::exception& e) {
-                LOG_WARN("Failed to query rule type for " + target_label + ": " + std::string(e.what()));
-                target.rule_type = "unknown";
-            }
+std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllTargetsConcurrentFallback() {
+    std::unordered_map<std::string, BazelTarget> targets;
+    
+    std::string targets_output = ExecuteBazelCommand("query '//...' --output=label" + query_etr_command);
+    std::vector<std::string> target_labels = SplitLines(targets_output);
+    
+    LOG_INFO("Concurrent fallback: Found " + std::to_string(target_labels.size()) + " total targets to query");
+    
+    // 过滤只保留C++相关目标
+    std::vector<std::string> cpp_targets;
+    for (const auto& label : target_labels) {
+        if (label.find("cc_") != std::string::npos) {
+            cpp_targets.push_back(label);
         }
-        
-        // 2. 查询源文件
-        try {
-            std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label";
-            std::string srcs_output = ExecuteBazelCommand(srcs_query);
-            std::vector<std::string> src_labels = SplitLines(srcs_output);
-            
-            for (const auto& src_label : src_labels) {
-                std::string src_path = ConvertBazelLabelToPath(src_label);
-                if (!src_path.empty()) {
-                    target.srcs.push_back(src_path);
-                }
-            }
-            
-            std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label";
-            std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
-            std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
-            
-            for (const auto& hdr_label : hdr_labels) {
-                std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
-                if (!hdr_path.empty()) {
-                    target.hdrs.push_back(hdr_path);
-                }
-            }
-        } catch (const std::exception& e) {
-            LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
-        }
-        
-        // 3. 查询直接依赖
-        try {
-            std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label";
-            std::string deps_output = ExecuteBazelCommand(deps_query);
-            target.deps = ExtractDependencies(target_label, deps_output);
-        } catch (const std::exception& e) {
-            LOG_WARN("Failed to query dependencies for " + target_label + ": " + std::string(e.what()));
-        }
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR("Comprehensive query failed for " + target.full_label + ": " + std::string(e.what()));
     }
+    
+    LOG_INFO("Filtered to " + std::to_string(cpp_targets.size()) + " C++ targets");
+    
+    // 使用并发处理
+    QueryTargetDetailsBatch(cpp_targets, targets);
+    
+    return targets;
+}
+
+std::string AdvancedBazelQueryParser::ExecuteBazelCommand(const std::string& command) {
+    std::string full_command = bazel_binary + " " + command;
+    LOG_DEBUG("Executing Bazel command: " + full_command);
+    
+    // 使用同步执行命令
+    return PipeCommandExecutor::execute(PipeCommandExecutor::setCommand(full_command));
 }
 
 std::string AdvancedBazelQueryParser::ExtractRuleType(const std::string& kind_output) {
@@ -307,7 +523,6 @@ std::vector<std::string> AdvancedBazelQueryParser::ExtractDependencies(const std
     return deps;
 }
 
-
 std::vector<std::string> AdvancedBazelQueryParser::SplitLines(const std::string& input) {
     std::vector<std::string> lines;
     std::istringstream iss(input);
@@ -325,65 +540,6 @@ std::vector<std::string> AdvancedBazelQueryParser::SplitLines(const std::string&
     }
     
     return lines;
-}
-
-std::string AdvancedBazelQueryParser::ExecuteBazelCommand(const std::string& command) {
-    std::string full_command = bazel_binary + " " + command;
-    LOG_INFO("Executing Bazel command: " + full_command);
-    return ExecuteSystemCommand(full_command);
-}
-
-std::string AdvancedBazelQueryParser::ExecuteSystemCommand(const std::string& command) {
-    std::string full_command = command + " 2>&1";
-    
-    std::promise<std::string> promise;
-    auto future = promise.get_future();
-    
-    std::thread([&promise, full_command]() {
-        try {
-            std::array<char, 128> buffer{};
-            std::string result;
-            
-            #ifdef _WIN32
-                std::unique_ptr<FILE, decltype(&_pclose)> pipe(_popen(full_command.c_str(), "r"), _pclose);
-            #else
-                std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(full_command.c_str(), "r"), pclose);
-            #endif
-            
-            if (!pipe) {
-                throw std::runtime_error("popen() failed for command: " + full_command);
-            }
-            
-            while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
-                result += buffer.data();
-            }
-            
-            // 检查退出状态
-            int exit_code = 0;
-            #ifdef _WIN32
-                exit_code = _pclose(pipe.release());
-            #else
-                exit_code = pclose(pipe.release());
-            #endif
-            
-            if (exit_code != 0) {
-                throw std::runtime_error("Command failed with exit code " + 
-                                       std::to_string(exit_code) + ": " + result);
-            }
-            
-            promise.set_value(result);
-        } catch (...) {
-            promise.set_exception(std::current_exception());
-        }
-    }).detach();
-    
-    // 等待结果，支持超时
-    auto status = future.wait_for(std::chrono::seconds(timeout_seconds));
-    if (status == std::future_status::ready) {
-        return future.get();
-    } else {
-        throw std::runtime_error("Command timeout: " + command);
-    }
 }
 
 std::string AdvancedBazelQueryParser::ConvertBazelLabelToPath(const std::string& bazel_label) {
@@ -422,12 +578,12 @@ std::string AdvancedBazelQueryParser::ConvertBazelLabelToPath(const std::string&
     }
     
     // 构建完整路径
-    std::filesystem::path full_path;
+    fs::path full_path;
     
     if (target_name.empty()) {
-        full_path = std::filesystem::path(workspace_path) / package_path;
+        full_path = fs::path(workspace_path) / package_path;
     } else {
-        full_path = std::filesystem::path(workspace_path) / package_path / target_name;
+        full_path = fs::path(workspace_path) / package_path / target_name;
     }
     
     return full_path.string();

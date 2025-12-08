@@ -2,14 +2,19 @@
 #include "analysis/CycleDetector.h"
 #include "output/OutputReport.h"
 #include "parser/AdvancedBazelQueryParser.h"
+#include "analysis/BuildTimeAnalyzer.h"
+#include "graph/DependencyGraph.h"
+#include "analysis/BuildTimeAnalyzer.h"
+
+#include <iterator>
 #include <memory>
 
 CommandLineArgs* BazelAnalyzerSDK::args = nullptr;
 
 class BazelAnalyzerSDK::Impl {
 public:
-    explicit Impl(int argc, char* argv[]) {
-        parser = new AdvancedBazelQueryParser(args->workspace_path);
+    explicit Impl(int argc, char* argv[]) {  
+        parser = new AdvancedBazelQueryParser(args->workspace_path, args->bazel_binary);
         targets = parser->ParseWorkspace();
         dependencyer = new DependencyGraph(targets);
         detector = new CycleDetector(*dependencyer, targets);
@@ -33,11 +38,25 @@ public:
         report->GenerateCycleReport(cycles, args->output_format);
     }
 
+    void analyzeBuildTime() {
+        timer = new BuildTimeAnalyzer(args->bazel_binary, args->workspace_path);
+        if (timer->createProfile("//...")) {
+            // 生成报告
+            std::string report = timer->generateBuildReport();
+            std::cout << report << std::endl;
+            
+            // 或者获取JSON格式的分析结果
+            auto analysis = timer->analyzeProfile();
+            std::cout << analysis.dump(2) << std::endl;
+        }
+    }
+
 private:
     AdvancedBazelQueryParser* parser;
     DependencyGraph* dependencyer;
     CycleDetector* detector;
     OutputReport* report;
+    BuildTimeAnalyzer* timer;
     std::unordered_map<std::string, BazelTarget> targets;
 };
 
@@ -57,5 +76,8 @@ void BazelAnalyzerSDK::executeCommand() {
     }
     else if (args->execute_function == ExcuteFuction::CYCLIC_DEPENDENCY_DETECTION) {
         impl_->analyzeCycles();
+    }
+    else if (args->execute_function == ExcuteFuction::BUILD_TIME_ANALYZE) {
+        impl_->analyzeBuildTime();
     }
 }

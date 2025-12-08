@@ -10,7 +10,9 @@
 #include <array>
 #include <memory>
 #include <filesystem>
-
+#include <algorithm>
+#include <mutex>
+#include <functional>
 
 #include "struct.h"
 #include "log/logger.h"
@@ -27,28 +29,39 @@ private:
     std::string workspace_path;
     std::string bazel_binary;
     std::string original_dir;
-    int timeout_seconds{30};
+    std::string query_etr_command;
     
     // 查询策略
     enum class QueryStrategy {
         COMPREHENSIVE,  // 一次性查询
-        INDIVIDUAL      // 逐个查询
+        CONCURRENT      // 并发查询（新的策略）
     };
     
-    // 查询实现
+    // 主要查询实现
     std::unordered_map<std::string, BazelTarget> ParseWithComprehensiveQuery();
+    std::unordered_map<std::string, BazelTarget> ParseWithConcurrentQueries();
     std::unordered_map<std::string, BazelTarget> ParseWithIndividualQueries();
+    
+    // 并发查询相关方法
+    void QueryTargetDetailsBatch(const std::vector<std::string>& target_labels,
+                                std::unordered_map<std::string, BazelTarget>& targets);
+    std::vector<BazelTarget> ProcessTargetBatch(const std::vector<std::string>& batch_labels);
+    BazelTarget ProcessSingleTarget(const std::string& label);
+    
+    // 回退策略
+    std::unordered_map<std::string, BazelTarget> ParseAllTargetsFallback();
+    std::unordered_map<std::string, BazelTarget> ParseAllTargetsConcurrentFallback();
+    
+    // 目标详情查询
+    void QueryTargetDetails(BazelTarget& target);
+    void QueryTargetDetailsConcurrent(BazelTarget& target);
     
     // 命令执行
     std::string ExecuteBazelCommand(const std::string& command);
-    std::string ExecuteSystemCommand(const std::string& command);
     
     // 解析单个目标
     BazelTarget ParseTargetFromLabelKind(const std::string& line);
 
-    // 查询目标详细信息
-    void QueryTargetDetails(BazelTarget& target);
-    
     // 转换Bazel标签为实际文件路径
     std::string ConvertBazelLabelToPath(const std::string& bazel_label);
 
@@ -60,14 +73,9 @@ private:
 
     // 提取依赖列表
     std::vector<std::string> ExtractDependencies(const std::string& target_label, const std::string& deps_output);
-
-    // 回退解析所有目标
-    std::unordered_map<std::string, BazelTarget> ParseAllTargetsFallback();
     
     // 目录管理
     void ChangeToWorkspaceDirectory();
-
-    // 恢复原始目录
     void RestoreOriginalDirectory();
     
     // 环境验证

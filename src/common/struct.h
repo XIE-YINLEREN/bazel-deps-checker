@@ -17,7 +17,8 @@ struct BazelTarget {
 
 enum class ExcuteFuction {
     UNUSED_DEPENDENCY_CHECK,        // 未使用依赖检查
-    CYCLIC_DEPENDENCY_DETECTION     // 循环依赖检测
+    CYCLIC_DEPENDENCY_DETECTION,    // 循环依赖检测
+    BUILD_TIME_ANALYZE,             // 构建时间分析
 };
 
 

@@ -4,9 +4,10 @@
 #include <regex>
 #include <algorithm>
 #include <stack>
+#include <string>
 
-SourceAnalyzer::SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets) 
-    : targets_(targets) {
+SourceAnalyzer::SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path) 
+    : targets_(targets), workspace_path_(workspace_path)  {
 }
 
 SourceAnalyzer::~SourceAnalyzer() {
@@ -73,9 +74,12 @@ void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes(const std::string& source_
     std::unordered_set<std::string> visited_headers;
     std::stack<std::string> to_analyze;
     
-    // 初始化栈
+    // 初始化栈只留下项目文件
     for (const auto& header : direct_includes) {
-        to_analyze.push(header);
+        if(header.find(".h") != std::string::npos ||
+            header.find(".hpp") != std::string::npos) {
+            to_analyze.push(header);
+        }
     }
     
     while (!to_analyze.empty()) {
@@ -109,8 +113,6 @@ void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes(const std::string& source_
 }
 
 std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
-    // 简单的查找逻辑 @TODO
-    
     // 检查是否已经是完整路径
     if (header_name.find('/') != std::string::npos) {
         // 尝试直接打开
@@ -121,11 +123,12 @@ std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
         }
     }
     
-    // 在当前目录中查找
-    std::ifstream test(header_name);
+    // 在工作区目录中查找
+    std::string full_path = workspace_path_ + "/" + header_name;
+    std::ifstream test(full_path);
     if (test.is_open()) {
         test.close();
-        return header_name;
+        return full_path;
     }
     
     return "";
@@ -184,20 +187,12 @@ bool SourceAnalyzer::ParseHeaderFile(const std::string& file_path, HeaderInfo& r
 }
 
 void SourceAnalyzer::ExtractIncludesFromLine(const std::string& line, std::unordered_set<std::string>& includes) {
-    // 匹配 #include
-    std::regex include_regex(R"(#\s*include\s*[<\"]([^>\"]+)[>\"])");
+    // 匹配 #include ""
+    std::regex include_regex(R"!(#\s*include\s*"([^"]+)")!");
     std::smatch match;
     
     if (std::regex_search(line, match, include_regex)) {
-        std::string include_path = match[1].str();
-        
-        // 提取文件名
-        size_t last_slash = include_path.find_last_of('/');
-        if (last_slash != std::string::npos) {
-            includes.insert(include_path.substr(last_slash + 1));
-        } else {
-            includes.insert(include_path);
-        }
+        includes.insert(match[1].str());
     }
 }
 

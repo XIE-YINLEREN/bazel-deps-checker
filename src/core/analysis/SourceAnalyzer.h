@@ -44,7 +44,7 @@ struct RemovableDependency {
 class SourceAnalyzer {
 public:
     // 构造函数，接收目标映射
-    explicit SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets);
+    explicit SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path);
     
     // 析构函数
     ~SourceAnalyzer();
@@ -113,6 +113,7 @@ private:
     bool IsHeaderFileExtension(const std::string& ext) const;
     
 private:
+    const std::string workspace_path_;   // 工作区路径
     const std::unordered_map<std::string, BazelTarget>& targets_;  // 目标映射引用
     std::unordered_map<std::string, TargetAnalysis> target_analysis_;  // 分析结果缓存
     std::unordered_set<std::string> analyzed_targets_;  // 已分析目标集合

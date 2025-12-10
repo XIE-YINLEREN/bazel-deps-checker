@@ -50,7 +50,7 @@ inline std::ostream& operator<<(std::ostream& os, CycleType type) {
 class CycleDetector {
 public:
     // 构造函数，接受依赖图和目标映射
-    CycleDetector(const DependencyGraph& graph, const std::unordered_map<std::string, BazelTarget>& targets);
+    CycleDetector(const DependencyGraph& graph, const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path);
     
     // 分析所有循环依赖
     std::vector<CycleAnalysis> AnalyzeCycles();
@@ -104,6 +104,7 @@ private:
     std::string CycleTypeToString(CycleType type) const;
     
 private:
+    const std::string workspace_path_;                          // 工作区路径
     const DependencyGraph& graph_;                              // 依赖图引用
     const std::unordered_map<std::string, BazelTarget>& targets_;  // 目标映射引用
     std::shared_ptr<SourceAnalyzer> source_analyzer_;           // 源代码分析器

@@ -82,7 +82,6 @@ bool BuildTimeAnalyzer::createProfile(const std::string& target) const {
         }
     }
     
-    // 构造完整的命令 - 不使用 cd，直接在工作目录下执行
     std::string command = constructBuildCommand(target);
     
     LOG_DEBUG("Executing command in workspace: " + workspace_path_);

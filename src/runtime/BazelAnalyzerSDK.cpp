@@ -6,7 +6,6 @@
 #include "graph/DependencyGraph.h"
 #include "analysis/BuildTimeAnalyzer.h"
 
-#include <iterator>
 #include <memory>
 
 CommandLineArgs* BazelAnalyzerSDK::args = nullptr;
@@ -17,7 +16,7 @@ public:
         parser = new AdvancedBazelQueryParser(args->workspace_path, args->bazel_binary);
         targets = parser->ParseWorkspace();
         dependencyer = new DependencyGraph(targets);
-        detector = new CycleDetector(*dependencyer, targets);
+        detector = new CycleDetector(*dependencyer, targets, args->workspace_path);
         report = new OutputReport();
     }
 

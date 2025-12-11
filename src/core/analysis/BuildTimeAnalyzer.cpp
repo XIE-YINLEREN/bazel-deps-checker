@@ -53,11 +53,7 @@ bool BuildTimeAnalyzer::validateEnvironment() const {
 
 std::string BuildTimeAnalyzer::constructBuildCommand(const std::string& target) const {
     std::string command = bazel_binary_;
-    
-    // 添加clean命令以确保干净构建（可选）
-    // command += " clean";
-    
-    // 添加build命令
+
     command += " build " + target + " " + profile_options_;
     
     return command;

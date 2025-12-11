@@ -1,13 +1,12 @@
 #include "SourceAnalyzer.h"
 #include <fstream>
-#include <sstream>
 #include <regex>
 #include <algorithm>
 #include <stack>
 #include <string>
 
 SourceAnalyzer::SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path) 
-    : targets_(targets), workspace_path_(workspace_path)  {
+    : workspace_path_(workspace_path), targets_(targets) {
 }
 
 SourceAnalyzer::~SourceAnalyzer() {
@@ -113,16 +112,6 @@ void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes(const std::string& source_
 }
 
 std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
-    // 检查是否已经是完整路径
-    if (header_name.find('/') != std::string::npos) {
-        // 尝试直接打开
-        std::ifstream test(header_name);
-        if (test.is_open()) {
-            test.close();
-            return header_name;
-        }
-    }
-    
     // 在工作区目录中查找
     std::string full_path = workspace_path_ + "/" + header_name;
     std::ifstream test(full_path);
@@ -243,11 +232,17 @@ bool SourceAnalyzer::IsDependencyNeeded(const std::string& target_name, const st
     LOG_DEBUG("Target includes " + std::to_string(target_headers.size()) + " headers");
     LOG_DEBUG("Dependency provides " + std::to_string(dep_headers.size()) + " headers");
     
-    // 检查目标是否使用了依赖提供的头文件
-    for (const auto& header : dep_headers) {
-        if (target_headers.find(header) != target_headers.end()) {
-            LOG_DEBUG("Target " + target_name + " uses header " + header + " from " + dependency);
-            return true;
+    for (const auto& dep_header : dep_headers) {
+        for (const auto& target_header : target_headers) {
+            // 提取 target_header 的文件名部分
+            size_t last_slash = target_header.find_last_of('/');
+            std::string target_header_name = (last_slash != std::string::npos) ? 
+                target_header.substr(last_slash + 1) : target_header;
+            
+            if (target_header_name == dep_header) {
+                LOG_DEBUG("Target " + target_name + " uses header " + dep_header + " from " + dependency + " (matched with " + target_header + ")");
+                return true;
+            }
         }
     }
     

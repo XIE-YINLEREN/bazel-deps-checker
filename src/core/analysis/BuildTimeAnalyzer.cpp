@@ -1,15 +1,23 @@
-#include "analysis/BuildTimeAnalyzer.h"
+#include "BuildTimeAnalyzer.h"
+#include "pipe.h"
+#include <nlohmann/json.hpp>
+#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
-#include <fstream>
+#include <queue>
+#include <stack>
 #include <regex>
-#include <string>
-#include <mutex>
+#include <sys/resource.h>
+#include <unistd.h>
 
+using json = nlohmann::json;
 namespace fs = std::filesystem;
 
-// 静态成员初始化
+namespace bazel_analyzer {
+
+// 静态常量定义
 const std::string BuildTimeAnalyzer::DEFAULT_PROFILE_OPTIONS = 
     "--profile=profile_detailed.json "
     "--record_full_profiler_data "
@@ -19,659 +27,1194 @@ const std::string BuildTimeAnalyzer::DEFAULT_PROFILE_OPTIONS =
     "--noshow_loading_progress "
     "--color=no";
 
-// 防止并发加载
-static std::mutex profile_loading_mutex;
+const std::string BuildTimeAnalyzer::DEFAULT_PROFILE_FILE = "profile_detailed.json";
 
-BuildTimeAnalyzer::BuildTimeAnalyzer(const std::string& bazel_binary, const std::string& workspace_path)
-    : bazel_binary_(bazel_binary),
-      workspace_path_(fs::absolute(workspace_path).string()),
-      profile_file_path_(fs::absolute(workspace_path + "/profile_detailed.json").string()),
-      profile_options_(DEFAULT_PROFILE_OPTIONS) {
+// 私有实现类
+class BuildTimeAnalyzer::Impl {
+private:
+    // 核心数据
+    std::vector<std::shared_ptr<BuildEvent>> events_;
+    std::vector<CriticalPathNode> critical_path_;
+    std::vector<OptimizationSuggestion> suggestions_;
+    std::vector<TargetStats> target_stats_;
+    BuildPhaseStats stats_;
+    std::chrono::microseconds total_build_time_{0};
+    std::chrono::microseconds total_analysis_time_{0};
+    std::chrono::microseconds profile_generation_time_{0};
     
-    // 创建工作空间目录（如果不存在）
-    if (!fs::exists(workspace_path_)) {
-        LOG_ERROR("Workspace path does not exist:" + workspace_path_);
-        throw std::runtime_error("Workspace path does not exist");
-    }
+    // 配置参数
+    std::string workspace_path_;
+    std::string bazel_binary_;
+    std::vector<std::string> build_targets_;
+    std::string profile_options_;
+    std::string profile_path_;
+    std::string export_directory_;
+    size_t max_critical_path_length_{10};
+    double analysis_threshold_seconds_{1.0};
     
-    LOG_INFO("BuildTimeAnalyzer initialized. Workspace:" + workspace_path_);
-}
-
-BuildTimeAnalyzer::~BuildTimeAnalyzer() {
-    // cleanupProfile();
-}
-
-bool BuildTimeAnalyzer::validateEnvironment() const {
-    // 检查是否有足够的磁盘空间（至少100MB）
-    auto space_info = fs::space(workspace_path_);
-    if (space_info.available < 100 * 1024 * 1024) {
-        LOG_WARN("Low disk space available: " + formatMemory(space_info.available));
-    }
+    // 内部数据结构
+    std::unordered_map<std::string, std::vector<std::shared_ptr<BuildEvent>>> events_by_thread_;
+    std::unordered_map<std::string, std::chrono::microseconds> rule_type_times_;
+    std::unordered_map<std::string, std::chrono::microseconds> target_times_;
+    std::unordered_map<std::string, std::shared_ptr<BuildEvent>> event_by_id_;
+    std::unordered_map<std::string, std::vector<std::string>> dependencies_;
+    std::unordered_map<std::string, std::vector<std::string>> dependents_;
     
-    return true;
-}
-
-std::string BuildTimeAnalyzer::constructBuildCommand(const std::string& target) const {
-    std::string command = bazel_binary_;
-
-    command += " build " + target + " " + profile_options_;
+    // 分析结果
+    AnalysisResult analysis_result_;
     
-    return command;
-}
-
-bool BuildTimeAnalyzer::createProfile(const std::string& target) const {
-    if (!validateEnvironment()) {
-        return false;
-    }
+    // 分析状态
+    bool is_analyzed_{false};
+    bool has_profile_{false};
+    mutable std::string last_error_;
     
-    LOG_INFO("Creating profile for target:" + target);
-    LOG_INFO("Working directory:" + workspace_path_);
+    // 线程安全
+    mutable std::mutex analysis_mutex_;
     
-    // 清理旧的profile文件
-    if (fs::exists(profile_file_path_)) {
-        try {
-            fs::remove(profile_file_path_);
-            LOG_INFO("Removed old profile file:" + profile_file_path_);
-        } catch (const fs::filesystem_error& e) {
-            std::string err = e.what();
-            LOG_WARN("Failed to remove old profile file: " + err);
+public:
+    Impl(const std::string& workspace_path, const std::string& bazel_binary)
+        : workspace_path_(workspace_path),
+          bazel_binary_(bazel_binary),
+          profile_options_(BuildTimeAnalyzer::DEFAULT_PROFILE_OPTIONS),
+          profile_path_(BuildTimeAnalyzer::DEFAULT_PROFILE_FILE),
+          export_directory_("bazel_analysis_reports") {
+        
+        build_targets_.push_back("//...");
+        
+        if (!workspace_path_.empty() && workspace_path_ != ".") {
+            try {
+                workspace_path_ = fs::absolute(workspace_path_).string();
+            } catch (const std::exception&) {
+                // 保持原样
+            }
         }
     }
     
-    std::string command = constructBuildCommand(target);
+    ~Impl() {
+        ClearAnalysis();
+    }
     
-    LOG_DEBUG("Executing command in workspace: " + workspace_path_);
-    LOG_DEBUG("Command: " + command);
+    void SetWorkspacePath(const std::string& workspace_path) {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        workspace_path_ = workspace_path;
+        if (!workspace_path_.empty() && workspace_path_ != ".") {
+            try {
+                workspace_path_ = fs::absolute(workspace_path_).string();
+            } catch (const std::exception&) {
+            }
+        }
+    }
     
-    auto start_time = std::chrono::high_resolution_clock::now();
+    void SetBazelBinary(const std::string& bazel_binary) {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        bazel_binary_ = bazel_binary;
+    }
     
-    try {
-        // 在执行命令前保存当前工作目录
-        fs::path original_cwd = fs::current_path();
+    void SetBuildTargets(const std::vector<std::string>& targets) {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        build_targets_ = targets;
+        if (build_targets_.empty()) {
+            build_targets_.push_back("//...");
+        }
+    }
+    
+    AnalysisResult RunFullAnalysis(const std::vector<std::string>& targets,
+                                  bool force_regenerate) {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        
+        analysis_result_ = AnalysisResult();
+        
+        std::vector<std::string> old_targets = build_targets_;
         
         try {
-            // 切换到工作空间目录
-            fs::current_path(workspace_path_);
-            LOG_DEBUG("Changed working directory to: " + workspace_path_);
+            if (!targets.empty()) {
+                build_targets_ = targets;
+            }
             
-            // 执行构建命令
-            auto [output, exit_code] = PipeCommandExecutor::executeWithStatus(command);
+            auto total_start = std::chrono::high_resolution_clock::now();
             
-            auto end_time = std::chrono::high_resolution_clock::now();
-            auto duration = std::chrono::duration_cast<std::chrono::seconds>(end_time - start_time).count();
+            if (!EnsureProfileExists(force_regenerate)) {
+                analysis_result_.success = false;
+                analysis_result_.error_message = "Failed to ensure profile exists: " + last_error_;
+                build_targets_ = old_targets;
+                return analysis_result_;
+            }
             
-            LOG_INFO("Build completed in " + std::to_string(duration) + " seconds. Exit code: " + std::to_string(exit_code));
+            auto after_generation = std::chrono::high_resolution_clock::now();
+            analysis_result_.generation_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                after_generation - total_start);
             
-            if (exit_code != 0) {
-                LOG_ERROR("Build failed with exit code: " + std::to_string(exit_code));
-                LOG_ERROR("Build output:\n" + output);
-                // 恢复原始工作目录
-                fs::current_path(original_cwd);
+            if (!LoadAndAnalyze(false)) {
+                analysis_result_.success = false;
+                analysis_result_.error_message = "Failed to load and analyze profile: " + last_error_;
+                build_targets_ = old_targets;
+                return analysis_result_;
+            }
+            
+            auto after_analysis = std::chrono::high_resolution_clock::now();
+            analysis_result_.analysis_time = std::chrono::duration_cast<std::chrono::microseconds>(
+                after_analysis - after_generation);
+            
+            analysis_result_.stats = stats_;
+            analysis_result_.suggestions = suggestions_;
+            analysis_result_.critical_paths = critical_path_;
+            
+            ExportReports();
+            
+            analysis_result_.success = true;
+            
+            build_targets_ = old_targets;
+            
+            return analysis_result_;
+            
+        } catch (const std::exception& e) {
+            analysis_result_.success = false;
+            analysis_result_.error_message = "Exception during full analysis: " + std::string(e.what());
+            build_targets_ = old_targets;
+            return analysis_result_;
+        }
+    }
+    
+    std::vector<CriticalPathNode> GetCriticalPath() const {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        return critical_path_;
+    }
+    
+    std::vector<OptimizationSuggestion> GetOptimizationSuggestions() const {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        return suggestions_;
+    }
+    
+    BuildPhaseStats GetBuildStats() const {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        return stats_;
+    }
+    
+    void ClearAnalysis() {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        
+        events_.clear();
+        critical_path_.clear();
+        suggestions_.clear();
+        target_stats_.clear();
+        events_by_thread_.clear();
+        rule_type_times_.clear();
+        target_times_.clear();
+        event_by_id_.clear();
+        dependencies_.clear();
+        dependents_.clear();
+        
+        stats_ = BuildPhaseStats{};
+        total_build_time_ = std::chrono::microseconds{0};
+        total_analysis_time_ = std::chrono::microseconds{0};
+        profile_generation_time_ = std::chrono::microseconds{0};
+        
+        analysis_result_ = AnalysisResult{};
+        is_analyzed_ = false;
+        last_error_.clear();
+    }
+    
+private:
+    bool ValidateWorkspace() const {
+        if (workspace_path_.empty()) {
+            last_error_ = "Workspace path is empty";
+            return false;
+        }
+        
+        try {
+            if (!fs::exists(workspace_path_)) {
+                last_error_ = "Workspace path does not exist: " + workspace_path_;
                 return false;
             }
             
-            // 检查profile文件是否生成
-            if (!fs::exists(profile_file_path_)) {
-                LOG_ERROR("Profile file was not generated: " + profile_file_path_);
-                // 恢复原始工作目录
-                fs::current_path(original_cwd);
+            if (!fs::is_directory(workspace_path_)) {
+                last_error_ = "Workspace path is not a directory: " + workspace_path_;
                 return false;
             }
-            
-            // 检查文件大小
-            auto file_size = fs::file_size(profile_file_path_);
-            if (file_size == 0) {
-                LOG_ERROR("Profile file is empty: " + profile_file_path_);
-                // 恢复原始工作目录
-                fs::current_path(original_cwd);
-                return false;
-            }
-            
-            LOG_INFO("Profile file generated successfully: " + std::to_string(file_size) + " bytes");
-            
-            // 恢复原始工作目录
-            fs::current_path(original_cwd);
-            LOG_DEBUG("Restored working directory to: " + original_cwd.string());
             
             return true;
-            
-        } catch (...) {
-            // 发生异常时恢复原始工作目录
-            fs::current_path(original_cwd);
-            throw;
+        } catch (const std::exception& e) {
+            last_error_ = "Error validating workspace: " + std::string(e.what());
+            return false;
         }
-        
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Exception during build: " + err);
-        return false;
-    }
-}
-
-std::pair<bool, std::string> BuildTimeAnalyzer::executeBuild(const std::string& target) const {
-    if (!validateEnvironment()) {
-        return {false, "Environment validation failed"};
     }
     
-    std::string command = bazel_binary_ + " build " + target;
-    
-    try {
-        // 在执行命令前保存当前工作目录
-        fs::path original_cwd = fs::current_path();
+    bool ValidateBazelBinary() const {
+        if (bazel_binary_.empty()) {
+            last_error_ = "Bazel binary path is empty";
+            return false;
+        }
         
         try {
-            // 切换到工作空间目录
-            fs::current_path(workspace_path_);
+            std::string test_command;
+            if (workspace_path_ != "." && !workspace_path_.empty()) {
+                test_command = "cd \"" + workspace_path_ + "\" && " + bazel_binary_ + " version";
+            } else {
+                test_command = bazel_binary_ + " version";
+            }
             
-            // 执行构建命令
-            auto [output, exit_code] = PipeCommandExecutor::executeWithStatus(command);
+            auto [output, exit_code] = PipeCommandExecutor::executeWithStatus(
+                PipeCommandExecutor::setCommand(test_command));
             
-            // 恢复原始工作目录
-            fs::current_path(original_cwd);
+            if (exit_code != 0) {
+                last_error_ = "Bazel binary is not executable or not found: " + bazel_binary_;
+                return false;
+            }
             
-            return {exit_code == 0, output};
-        } catch (...) {
-            // 发生异常时恢复原始工作目录
-            fs::current_path(original_cwd);
-            throw;
+            return true;
+        } catch (const std::exception& e) {
+            last_error_ = "Error validating bazel binary: " + std::string(e.what());
+            return false;
         }
-    } catch (const std::exception& e) {
-        return {false, std::string("Exception: ") + e.what()};
-    }
-}
-
-json BuildTimeAnalyzer::loadProfileJson() const {
-    std::lock_guard<std::mutex> lock(profile_loading_mutex);
-    
-    if (!fs::exists(profile_file_path_)) {
-        throw std::runtime_error("Profile file not found: " + profile_file_path_);
     }
     
-    try {
-        LOG_INFO("Loading profile JSON from: " + profile_file_path_);
-        
-        // 检查文件大小
-        auto file_size = fs::file_size(profile_file_path_);
-        LOG_INFO("Profile file size: " + formatMemory(file_size));
-        
-        std::ifstream file(profile_file_path_);
-        if (!file.is_open()) {
-            throw std::runtime_error("Failed to open profile file: " + profile_file_path_);
+    bool ValidateConfiguration() const {
+        if (!ValidateWorkspace()) {
+            return false;
         }
         
-        LOG_INFO("Starting to parse JSON...");
-        auto start_time = std::chrono::high_resolution_clock::now();
-        
-        json profile_data;
-        file >> profile_data;
-        
-        auto end_time = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-        LOG_INFO("JSON parsing completed in " + std::to_string(duration) + "ms");
-        
-        // 检查解析后的数据结构
-        if (profile_data.is_null()) {
-            throw std::runtime_error("Parsed JSON is null");
+        if (!ValidateBazelBinary()) {
+            return false;
         }
         
-        if (profile_data.contains("traceEvents")) {
-            LOG_INFO("Found " + std::to_string(profile_data["traceEvents"].size()) + " trace events");
+        if (build_targets_.empty()) {
+            last_error_ = "No build targets specified";
+            return false;
+        }
+        
+        return true;
+    }
+    
+    std::pair<std::string, int> ExecuteBazelCommand(const std::string& command) const {
+        std::string full_command;
+        
+        if (workspace_path_ != "." && !workspace_path_.empty()) {
+            full_command = "cd \"" + workspace_path_ + "\" && " + command;
         } else {
-            LOG_WARN("No traceEvents found in profile");
+            full_command = command;
         }
         
-        return profile_data;
-    } catch (const json::exception& e) {
-        std::string error_msg = "Failed to parse JSON: " + std::string(e.what());
-        LOG_ERROR(error_msg);
-        throw std::runtime_error(error_msg);
-    } catch (const std::exception& e) {
-        std::string error_msg = "Failed to load profile: " + std::string(e.what());
-        LOG_ERROR(error_msg);
-        throw std::runtime_error(error_msg);
+        return PipeCommandExecutor::executeWithStatus(
+            PipeCommandExecutor::setCommand(full_command));
     }
-}
-
-// 添加缺失的成员函数实现
-void BuildTimeAnalyzer::analyzeCriticalPath(const json& profile_data, json& result) const {
-    json critical_path;
     
-    if (profile_data.contains("otherData") && 
-        profile_data["otherData"].contains("critical_path")) {
+    std::string BuildFullBazelCommand(const std::vector<std::string>& targets,
+                                     const std::string& additional_args = "") const {
+        std::stringstream cmd;
         
-        const auto& critical_path_data = profile_data["otherData"]["critical_path"];
+        cmd << bazel_binary_ << " build";
         
-        critical_path["length"] = critical_path_data.size();
-        
-        json critical_path_entries = json::array();
-        for (const auto& entry : critical_path_data) {
-            json path_entry;
-            if (entry.contains("description")) {
-                path_entry["action"] = entry["description"];
-            }
-            if (entry.contains("duration")) {
-                path_entry["duration_ms"] = entry["duration"];
-                path_entry["duration"] = formatDuration(entry["duration"].get<double>() / 1000.0);
-            }
-            critical_path_entries.push_back(path_entry);
+        const auto& actual_targets = targets.empty() ? build_targets_ : targets;
+        for (const auto& target : actual_targets) {
+            cmd << " " << target;
         }
         
-        critical_path["entries"] = critical_path_entries;
+        std::string profile_options = profile_options_;
+        if (workspace_path_ != "." && !workspace_path_.empty()) {
+            if (!fs::path(profile_path_).is_absolute()) {
+                std::string absolute_profile_path = fs::absolute(fs::path(workspace_path_) / profile_path_).string();
+                size_t pos = profile_options.find("--profile=");
+                if (pos != std::string::npos) {
+                    size_t end = profile_options.find(' ', pos);
+                    if (end == std::string::npos) end = profile_options.length();
+                    profile_options = profile_options.substr(0, pos) + 
+                                     "--profile=" + absolute_profile_path + 
+                                     profile_options.substr(end);
+                }
+            }
+        }
+        
+        cmd << " " << profile_options;
+        
+        if (!additional_args.empty()) {
+            cmd << " " << additional_args;
+        }
+        
+        return cmd.str();
     }
     
-    result["critical_path"] = critical_path;
-}
-
-void BuildTimeAnalyzer::analyzePhaseTimes(const json& profile_data, json& result) const {
-    json phases;
-    std::map<std::string, double> phase_times;
-    
-    if (profile_data.contains("traceEvents")) {
-        const auto& events = profile_data["traceEvents"];
+    bool EnsureProfileExists(bool force_regenerate = false) {
+        if (!ValidateConfiguration()) {
+            return false;
+        }
         
-        for (const auto& event : events) {
-            if (event.contains("name") && event.contains("dur")) {
+        if (force_regenerate) {
+            CleanProfileFile();
+        }
+        
+        if (ProfileFileExists() && ValidateProfileFile()) {
+            has_profile_ = true;
+            return true;
+        }
+        
+        has_profile_ = GenerateProfile();
+        return has_profile_;
+    }
+    
+    bool ProfileFileExists() const {
+        try {
+            std::string actual_profile_path = profile_path_;
+            
+            if (!fs::path(actual_profile_path).is_absolute() && 
+                workspace_path_ != "." && !workspace_path_.empty()) {
+                actual_profile_path = fs::path(workspace_path_) / profile_path_;
+            }
+            
+            return fs::exists(actual_profile_path) && fs::file_size(actual_profile_path) > 0;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+    
+    bool ValidateProfileFile() const {
+        std::string actual_profile_path = profile_path_;
+        
+        if (!fs::path(actual_profile_path).is_absolute() && 
+            workspace_path_ != "." && !workspace_path_.empty()) {
+            actual_profile_path = fs::path(workspace_path_) / profile_path_;
+        }
+        
+        if (!ProfileFileExists()) {
+            last_error_ = "Profile file does not exist: " + actual_profile_path;
+            return false;
+        }
+        
+        try {
+            std::ifstream file(actual_profile_path);
+            if (!file.is_open()) {
+                last_error_ = "Failed to open profile file: " + actual_profile_path;
+                return false;
+            }
+            
+            json profile_data = json::parse(file);
+            bool has_trace_events = profile_data.contains("traceEvents");
+            bool has_other_data = profile_data.contains("otherData") || 
+                                 profile_data.contains("displayTimeUnit") ||
+                                 !profile_data.empty();
+            
+            file.close();
+            
+            if (!has_trace_events && !has_other_data) {
+                last_error_ = "Profile file does not contain required fields";
+                return false;
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            last_error_ = "JSON parsing error: " + std::string(e.what());
+            return false;
+        }
+    }
+    
+    bool CleanProfileFile() const {
+        try {
+            std::string actual_profile_path = profile_path_;
+            if (!fs::path(actual_profile_path).is_absolute() && 
+                workspace_path_ != "." && !workspace_path_.empty()) {
+                actual_profile_path = fs::path(workspace_path_) / profile_path_;
+            }
+            
+            if (fs::exists(actual_profile_path)) {
+                fs::remove(actual_profile_path);
+                return true;
+            }
+            return false;
+        } catch (const std::exception& e) {
+            last_error_ = "Failed to clean profile file: " + std::string(e.what());
+            return false;
+        }
+    }
+    
+    bool GenerateProfile(const std::vector<std::string>& targets = {},
+                        const std::string& additional_args = "") {
+        if (!ValidateConfiguration()) {
+            return false;
+        }
+        
+        try {
+            std::string full_command = BuildFullBazelCommand(targets, additional_args);
+            
+            auto start_time = std::chrono::high_resolution_clock::now();
+            
+            auto [output, exit_code] = ExecuteBazelCommand(full_command);
+            
+            auto end_time = std::chrono::high_resolution_clock::now();
+            profile_generation_time_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                end_time - start_time);
+            
+            ParseGenerationOutput(output, exit_code);
+            
+            if (exit_code != 0) {
+                last_error_ = "Bazel command failed with exit code: " + std::to_string(exit_code);
+                return false;
+            }
+            
+            if (!ValidateProfileFile()) {
+                last_error_ = "Generated profile file is invalid";
+                return false;
+            }
+            
+            has_profile_ = true;
+            return true;
+            
+        } catch (const std::exception& e) {
+            last_error_ = "Exception during profile generation: " + std::string(e.what());
+            return false;
+        }
+    }
+    
+    void ParseGenerationOutput(const std::string& output, int exit_code) {
+        // 简单解析输出，获取基本信息
+        std::regex action_count_regex(R"((\d+)\s+action(s?)\s+completed)");
+        std::smatch matches;
+        
+        if (std::regex_search(output, matches, action_count_regex)) {
+            if (matches.size() >= 2) {
+                // 记录操作数量
+            }
+        }
+    }
+    
+    bool LoadAndAnalyze(bool auto_generate_if_missing = true) {
+        ClearAnalysis();
+        
+        if (!LoadProfile(auto_generate_if_missing)) {
+            return false;
+        }
+        
+        is_analyzed_ = true;
+        return true;
+    }
+    
+    bool LoadProfile(bool auto_generate_if_missing = true) {
+        std::string actual_profile_path = profile_path_;
+        if (!fs::path(actual_profile_path).is_absolute() && 
+            workspace_path_ != "." && !workspace_path_.empty()) {
+            actual_profile_path = fs::path(workspace_path_) / profile_path_;
+        }
+        
+        if (!ProfileFileExists()) {
+            if (auto_generate_if_missing) {
+                if (!GenerateProfile()) {
+                    return false;
+                }
+            } else {
+                last_error_ = "Profile file not found: " + actual_profile_path;
+                return false;
+            }
+        }
+        
+        if (!ValidateProfileFile()) {
+            if (auto_generate_if_missing) {
+                if (!GenerateProfile()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+        
+        std::ifstream file(actual_profile_path);
+        if (!file.is_open()) {
+            last_error_ = "Failed to open profile file: " + actual_profile_path;
+            return false;
+        }
+        
+        auto analysis_start = std::chrono::high_resolution_clock::now();
+        
+        try {
+            std::stringstream buffer;
+            buffer << file.rdbuf();
+            std::string json_content = buffer.str();
+            file.close();
+            
+            if (!ParseProfileData(json_content)) {
+                return false;
+            }
+            
+            BuildDependencyGraph();
+            
+            CalculateCriticalPath();
+            AnalyzeConcurrency();
+            AnalyzeCacheEfficiency();
+            AnalyzeMemoryUsage();
+            AnalyzeVFSOperations();
+            CalculateTargetStatistics();
+            GenerateOptimizationSuggestions();
+            
+            auto analysis_end = std::chrono::high_resolution_clock::now();
+            total_analysis_time_ = std::chrono::duration_cast<std::chrono::microseconds>(
+                analysis_end - analysis_start);
+            
+            return true;
+        } catch (const std::exception& e) {
+            last_error_ = "Exception during profile loading: " + std::string(e.what());
+            return false;
+        }
+    }
+    
+    bool ParseProfileData(const std::string& json_content) {
+        try {
+            json profile_data = json::parse(json_content);
+            
+            if (!profile_data.contains("traceEvents")) {
+                last_error_ = "Profile file does not contain traceEvents";
+                return false;
+            }
+            
+            const auto& trace_events = profile_data["traceEvents"];
+            
+            for (const auto& event : trace_events) {
+                if (!event.contains("name") || !event.contains("ts") || 
+                    !event.contains("dur")) {
+                    continue;
+                }
+                
                 std::string name = event["name"];
-                double duration = event["dur"].get<double>();
+                std::string cat = event.value("cat", "OTHER");
+                std::string tid = event.value("tid", "0");
+                std::string pid = event.value("pid", "0");
                 
-                // 提取阶段名称（如 "execution phase" 等）
-                if (name.find("phase") != std::string::npos) {
-                    phase_times[name] += duration;
+                std::string event_id = pid + ":" + tid + ":" + name;
+                
+                std::chrono::microseconds start(event["ts"].get<uint64_t>());
+                std::chrono::microseconds duration(event["dur"].get<uint64_t>());
+                
+                if (duration.count() / 1000000.0 < analysis_threshold_seconds_) {
+                    continue;
                 }
-            }
-        }
-    }
-    
-    for (const auto& [phase, time] : phase_times) {
-        json phase_info;
-        phase_info["time_ms"] = time;
-        phase_info["time"] = formatDuration(time / 1000.0);
-        phases[phase] = phase_info;
-    }
-    
-    result["build_phases"] = phases;
-}
-
-void BuildTimeAnalyzer::analyzeActionCounts(const json& profile_data, json& result) const {
-    json action_counts;
-    std::map<std::string, int> actions;
-    
-    if (profile_data.contains("traceEvents")) {
-        const auto& events = profile_data["traceEvents"];
-        
-        for (const auto& event : events) {
-            if (event.contains("cat")) {
-                std::string category = event["cat"];
-                actions[category]++;
-            }
-        }
-    }
-    
-    int total_actions = 0;
-    for (const auto& [category, count] : actions) {
-        action_counts[category] = count;
-        total_actions += count;
-    }
-    
-    action_counts["total"] = total_actions;
-    result["action_counts"] = action_counts;
-}
-
-void BuildTimeAnalyzer::analyzeCachePerformance(const json& profile_data, json& result) const {
-    json cache_stats;
-    
-    if (profile_data.contains("otherData") && 
-        profile_data["otherData"].contains("action_cache")) {
-        
-        const auto& action_cache = profile_data["otherData"]["action_cache"];
-        cache_stats["hits"] = action_cache.value("hits", 0);
-        cache_stats["misses"] = action_cache.value("misses", 0);
-        
-        int total = cache_stats["hits"].get<int>() + cache_stats["misses"].get<int>();
-        if (total > 0) {
-            double hit_rate = (cache_stats["hits"].get<double>() / total) * 100;
-            cache_stats["hit_rate_percent"] = hit_rate;
-        }
-    }
-    
-    result["cache_performance"] = cache_stats;
-}
-
-json BuildTimeAnalyzer::analyzeProfile() const {
-    LOG_INFO("Starting profile analysis...");
-    
-    try {
-        auto profile_data = loadProfileJson();
-        json analysis_result;
-        
-        // 1. 基本信息
-        analysis_result["profile_file"] = profile_file_path_;
-        auto file_size = fs::file_size(profile_file_path_);
-        analysis_result["file_size_bytes"] = file_size;
-        analysis_result["file_size_human"] = formatMemory(file_size);
-        
-        // 2. 总构建时间
-        if (profile_data.contains("traceEvents")) {
-            const auto& events = profile_data["traceEvents"];
-            if (!events.empty() && events.back().contains("ts")) {
-                double total_time_ms = events.back()["ts"].get<double>();
-                analysis_result["total_build_time_ms"] = total_time_ms;
-                analysis_result["total_build_time"] = formatDuration(total_time_ms / 1000.0);
-            }
-        }
-        
-        // 3. 分析关键路径
-        analyzeCriticalPath(profile_data, analysis_result);
-        
-        // 4. 分析各阶段时间
-        analyzePhaseTimes(profile_data, analysis_result);
-        
-        // 5. 分析action计数
-        analyzeActionCounts(profile_data, analysis_result);
-        
-        // 6. 分析缓存性能
-        analyzeCachePerformance(profile_data, analysis_result);
-        
-        LOG_INFO("Profile analysis completed");
-        return analysis_result;
-        
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to analyze profile: " + err);
-        throw;
-    }
-}
-
-std::map<std::string, double> BuildTimeAnalyzer::getBuildTimeBreakdown() const {
-    std::map<std::string, double> breakdown;
-    
-    try {
-        auto profile_data = loadProfileJson();
-        
-        // 直接从原始数据中分析，不调用 analyzeProfile()
-        if (profile_data.contains("traceEvents")) {
-            const auto& events = profile_data["traceEvents"];
-            std::map<std::string, double> phase_times;
-            
-            for (const auto& event : events) {
-                if (event.contains("name") && event.contains("dur")) {
-                    std::string name = event["name"];
-                    double duration = event["dur"].get<double>();
+                
+                EventType type = ClassifyEvent(name, cat);
+                
+                auto build_event = std::make_shared<BuildEvent>(name, type, start, duration);
+                build_event->category = cat;
+                build_event->thread_id = tid;
+                
+                if (event.contains("args")) {
+                    const auto& args = event["args"];
+                    if (args.contains("outputs")) {
+                        build_event->output = args["outputs"].dump();
+                    }
                     
-                    if (name.find("phase") != std::string::npos) {
-                        phase_times[name] += duration;
+                    if (args.contains("inputs") && args["inputs"].is_array()) {
+                        for (const auto& input : args["inputs"]) {
+                            if (input.is_string()) {
+                                build_event->dependencies.push_back(input.get<std::string>());
+                            }
+                        }
                     }
                 }
-            }
-            
-            for (const auto& [phase, time] : phase_times) {
-                breakdown[phase] = time;
-            }
-        }
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to get build time breakdown: " + err);
-    }
-    
-    return breakdown;
-}
-
-std::vector<std::pair<std::string, double>> BuildTimeAnalyzer::getTopTimeConsumingTargets(int top_n) const {
-    std::vector<std::pair<std::string, double>> top_targets;
-    
-    try {
-        auto profile_data = loadProfileJson();
-        
-        if (profile_data.contains("traceEvents")) {
-            std::map<std::string, double> target_times;
-            
-            for (const auto& event : profile_data["traceEvents"]) {
-                if (event.contains("args") && event["args"].contains("target")) {
-                    std::string target = event["args"]["target"];
-                    if (event.contains("dur")) {
-                        target_times[target] += event["dur"].get<double>();
-                    }
+                
+                build_event->rule = ExtractRuleName(name);
+                
+                events_.push_back(build_event);
+                events_by_thread_[tid].push_back(build_event);
+                event_by_id_[event_id] = build_event;
+                
+                if (!build_event->rule.empty()) {
+                    rule_type_times_[build_event->rule] += duration;
                 }
-            }
-            
-            // 转换为vector并排序
-            for (const auto& [target, time] : target_times) {
-                top_targets.emplace_back(target, time);
-            }
-            
-            // 按耗时降序排序
-            std::sort(top_targets.begin(), top_targets.end(),
-                     [](const auto& a, const auto& b) { return a.second > b.second; });
-            
-            // 限制返回数量
-            if (top_n > 0 && top_targets.size() > static_cast<size_t>(top_n)) {
-                top_targets.resize(top_n);
-            }
-        }
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to get top time-consuming targets: " + err);
-    }
-    
-    return top_targets;
-}
-
-std::map<std::string, size_t> BuildTimeAnalyzer::getMemoryUsage() const {
-    std::map<std::string, size_t> memory_usage;
-    
-    try {
-        // 只返回文件大小信息，避免循环调用
-        auto file_size = fs::file_size(profile_file_path_);
-        memory_usage["profile_file_size"] = file_size;
-        
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to get memory usage: " + err);
-    }
-    
-    return memory_usage;
-}
-
-std::string BuildTimeAnalyzer::generateBuildReport() const {
-    std::stringstream report;
-    
-    try {
-        // 只调用一次 analyzeProfile()
-        auto analysis = analyzeProfile();
-        
-        report << "========================================\n";
-        report << "         BUILD ANALYSIS REPORT         \n";
-        report << "========================================\n\n";
-        
-        // 基本信息
-        report << "1. BASIC INFORMATION:\n";
-        report << "   Workspace: " << workspace_path_ << "\n";
-        report << "   Profile file: " << analysis["profile_file"] << "\n";
-        report << "   File size: " << analysis["file_size_human"] << "\n\n";
-        
-        // 构建时间
-        if (analysis.contains("total_build_time")) {
-            report << "2. BUILD TIME:\n";
-            report << "   Total time: " << analysis["total_build_time"] << "\n\n";
-        }
-        
-        // 关键路径
-        if (analysis.contains("critical_path") && 
-            analysis["critical_path"].contains("length")) {
-            
-            report << "3. CRITICAL PATH:\n";
-            report << "   Length: " << analysis["critical_path"]["length"] << " actions\n";
-            
-            if (analysis["critical_path"].contains("entries")) {
-                int i = 1;
-                for (const auto& entry : analysis["critical_path"]["entries"]) {
-                    report << "   " << i++ << ". " << entry["action"] << " (" 
-                           << entry["duration"] << ")\n";
-                    if (i > 10) {  // 只显示前10个
-                        report << "   ... (and " << (analysis["critical_path"]["length"].get<int>() - 10) << " more)\n";
+                
+                std::string target = ExtractTargetName(name);
+                if (!target.empty()) {
+                    target_times_[target] += duration;
+                }
+                
+                stats_.total_duration += duration;
+                switch (type) {
+                    case EventType::PACKAGE_LOAD:
+                        stats_.loading_duration += duration;
+                        if (duration > stats_.longest_loading_time) {
+                            stats_.longest_loading_time = duration;
+                            stats_.longest_loading_event = name;
+                        }
                         break;
+                    case EventType::ANALYSIS:
+                        stats_.analysis_duration += duration;
+                        if (duration > stats_.longest_analysis_time) {
+                            stats_.longest_analysis_time = duration;
+                            stats_.longest_analysis_event = name;
+                        }
+                        break;
+                    case EventType::EXECUTION:
+                    case EventType::ACTION:
+                        stats_.execution_duration += duration;
+                        if (duration > stats_.longest_execution_time) {
+                            stats_.longest_execution_time = duration;
+                            stats_.longest_execution_event = name;
+                        }
+                        break;
+                    case EventType::VFS:
+                        stats_.vfs_duration += duration;
+                        stats_.total_vfs_operations++;
+                        if (name.find("read") != std::string::npos) {
+                            stats_.vfs_read_operations++;
+                        } else if (name.find("write") != std::string::npos) {
+                            stats_.vfs_write_operations++;
+                        }
+                        break;
+                    default:
+                        stats_.other_duration += duration;
+                        break;
+                }
+            }
+            
+            if (!events_.empty()) {
+                auto min_iter = std::min_element(events_.begin(), events_.end(),
+                    [](const auto& a, const auto& b) {
+                        return a->start_time < b->start_time;
+                    });
+                auto min_time = (*min_iter)->start_time;
+
+                auto max_iter = std::max_element(events_.begin(), events_.end(),
+                    [](const auto& a, const auto& b) {
+                        return a->start_time + a->duration < b->start_time + b->duration;
+                    });
+                
+                total_build_time_ = ((*max_iter)->start_time + (*max_iter)->duration) - min_time;
+                
+                for (auto& event : events_) {
+                    event->percentage_of_total = (event->duration.count() / 1000000.0) / 
+                                                (total_build_time_.count() / 1000000.0) * 100.0;
+                }
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            last_error_ = "JSON parsing error: " + std::string(e.what());
+            return false;
+        }
+    }
+    
+    EventType ClassifyEvent(const std::string& name, const std::string& category) {
+        std::string lower_name;
+        std::transform(name.begin(), name.end(), std::back_inserter(lower_name),
+                       [](unsigned char c) { return std::tolower(c); });
+        
+        std::string lower_cat;
+        std::transform(category.begin(), category.end(), std::back_inserter(lower_cat),
+                       [](unsigned char c) { return std::tolower(c); });
+        
+        if (lower_name.find("action") != std::string::npos ||
+            lower_name.find("exec") != std::string::npos ||
+            lower_cat.find("action") != std::string::npos) {
+            return EventType::ACTION;
+        }
+        else if (lower_name.find("package") != std::string::npos ||
+                 lower_name.find("load") != std::string::npos ||
+                 lower_name.find("starlark") != std::string::npos) {
+            return EventType::PACKAGE_LOAD;
+        }
+        else if (lower_name.find("analyze") != std::string::npos ||
+                 lower_name.find("analysis") != std::string::npos ||
+                 lower_name.find("configure") != std::string::npos) {
+            return EventType::ANALYSIS;
+        }
+        else if (lower_name.find("vfs") != std::string::npos ||
+                 lower_name.find("file") != std::string::npos ||
+                 lower_name.find("stat") != std::string::npos ||
+                 lower_name.find("read") != std::string::npos ||
+                 lower_name.find("write") != std::string::npos) {
+            return EventType::VFS;
+        }
+        else if (lower_cat.find("execution") != std::string::npos ||
+                 lower_name.find("spawn") != std::string::npos ||
+                 lower_name.find("worker") != std::string::npos) {
+            return EventType::EXECUTION;
+        }
+        
+        return EventType::OTHER;
+    }
+    
+    std::string ExtractRuleName(const std::string& event_name) const {
+        std::vector<std::string> rule_patterns = {
+            "cc_", "java_", "py_", "go_", "rust_", "proto_", "genrule",
+            "sh_", "test_", "binary_", "library_", "compiler_", "link_"
+        };
+        
+        for (const auto& pattern : rule_patterns) {
+            size_t pos = event_name.find(pattern);
+            if (pos != std::string::npos) {
+                size_t end = event_name.find(' ', pos);
+                if (end != std::string::npos) {
+                    return event_name.substr(pos, end - pos);
+                }
+                return event_name.substr(pos);
+            }
+        }
+        
+        std::regex rule_regex(R"((\w+_[\w_]+)\s+)");
+        std::smatch matches;
+        
+        if (std::regex_search(event_name, matches, rule_regex)) {
+            if (matches.size() >= 2) {
+                return matches[1];
+            }
+        }
+        
+        return "";
+    }
+    
+    std::string ExtractTargetName(const std::string& event_name) const {
+        std::regex target_regex(R"((//[^:\s]+:[^\s]+))");
+        std::smatch matches;
+        
+        if (std::regex_search(event_name, matches, target_regex)) {
+            if (matches.size() >= 2) {
+                return matches[1];
+            }
+        }
+        
+        size_t colon_pos = event_name.find_last_of(':');
+        if (colon_pos != std::string::npos && colon_pos > 0) {
+            size_t start = event_name.rfind(' ', colon_pos);
+            if (start != std::string::npos) {
+                return event_name.substr(start + 1, colon_pos - start);
+            }
+            return event_name.substr(0, colon_pos);
+        }
+        
+        return "";
+    }
+    
+    void BuildDependencyGraph() {
+        for (const auto& event : events_) {
+            std::string event_id = "0:" + event->thread_id + ":" + event->name;
+            
+            for (const auto& dep : event->dependencies) {
+                dependencies_[event_id].push_back(dep);
+                dependents_[dep].push_back(event_id);
+            }
+        }
+    }
+    
+    void CalculateCriticalPath() {
+        critical_path_.clear();
+        
+        std::vector<std::string> root_nodes;
+        for (const auto& event_pair : event_by_id_) {
+            const auto& event_id = event_pair.first;
+            if (dependencies_.find(event_id) == dependencies_.end() || 
+                dependencies_[event_id].empty()) {
+                root_nodes.push_back(event_id);
+            }
+        }
+        
+        for (const auto& root_node : root_nodes) {
+            std::vector<std::string> current_path;
+            std::chrono::microseconds current_duration{0};
+            
+            std::string current_node = root_node;
+            while (event_by_id_.find(current_node) != event_by_id_.end()) {
+                const auto& event = event_by_id_[current_node];
+                current_path.push_back(event->name);
+                current_duration += event->duration;
+                
+                if (dependents_.find(current_node) == dependents_.end() || 
+                    dependents_[current_node].empty()) {
+                    break;
+                }
+                
+                std::string next_node;
+                std::chrono::microseconds max_duration{0};
+                for (const auto& dependent_id : dependents_[current_node]) {
+                    if (event_by_id_.find(dependent_id) != event_by_id_.end()) {
+                        const auto& dep_event = event_by_id_[dependent_id];
+                        if (dep_event->duration > max_duration) {
+                            max_duration = dep_event->duration;
+                            next_node = dependent_id;
+                        }
+                    }
+                }
+                
+                if (next_node.empty()) break;
+                current_node = next_node;
+            }
+            
+            if (!current_path.empty()) {
+                CriticalPathNode path_node;
+                path_node.event_name = current_path.back();
+                path_node.cumulative_duration = current_duration;
+                path_node.path = current_path;
+                path_node.rule_type = event_by_id_[root_node]->rule;
+                critical_path_.push_back(path_node);
+            }
+        }
+        
+        std::sort(critical_path_.begin(), critical_path_.end());
+        
+        if (critical_path_.size() > max_critical_path_length_) {
+            critical_path_.resize(max_critical_path_length_);
+        }
+    }
+    
+    void AnalyzeConcurrency() {
+        struct TimelineEvent {
+            std::chrono::microseconds time;
+            bool is_start;
+            const BuildEvent* event;
+        };
+        
+        std::vector<TimelineEvent> timeline;
+        for (const auto& event : events_) {
+            if (event->type == EventType::ACTION || event->type == EventType::EXECUTION) {
+                timeline.push_back({event->start_time, true, event.get()});
+                timeline.push_back({event->start_time + event->duration, false, event.get()});
+            }
+        }
+        
+        std::sort(timeline.begin(), timeline.end(),
+            [](const auto& a, const auto& b) {
+                return a.time < b.time;
+            });
+        
+        size_t current_concurrency = 0;
+        std::chrono::microseconds last_time{0};
+        std::chrono::microseconds total_weighted_concurrency{0};
+        
+        stats_.max_concurrent_actions = 0;
+        
+        for (const auto& tl_event : timeline) {
+            if (last_time.count() > 0) {
+                auto duration = tl_event.time - last_time;
+                total_weighted_concurrency += duration * current_concurrency;
+            }
+            
+            if (tl_event.is_start) {
+                current_concurrency++;
+                stats_.max_concurrent_actions = std::max(stats_.max_concurrent_actions, current_concurrency);
+            } else {
+                current_concurrency--;
+            }
+            
+            last_time = tl_event.time;
+        }
+        
+        if (total_build_time_.count() > 0) {
+            stats_.average_concurrency = total_weighted_concurrency / total_build_time_;
+        }
+    }
+    
+    void AnalyzeCacheEfficiency() {
+        size_t hits = 0;
+        size_t misses = 0;
+        
+        for (const auto& event : events_) {
+            if (IsCacheEvent(event->name)) {
+                if (event->name.find("cache hit") != std::string::npos ||
+                    event->name.find("remote cache hit") != std::string::npos ||
+                    event->name.find("disk cache hit") != std::string::npos) {
+                    hits++;
+                } else if (event->name.find("cache miss") != std::string::npos ||
+                           event->name.find("no cache") != std::string::npos ||
+                           event->name.find("local execution") != std::string::npos) {
+                    misses++;
+                }
+            }
+        }
+        
+        stats_.cache_hits = hits;
+        stats_.cache_misses = misses;
+        
+        if (hits + misses > 0) {
+            stats_.cache_hit_rate = static_cast<double>(hits) / (hits + misses) * 100.0;
+        }
+    }
+    
+    bool IsCacheEvent(const std::string& event_name) const {
+        std::string lower_name;
+        std::transform(event_name.begin(), event_name.end(), std::back_inserter(lower_name),
+                       [](unsigned char c) { return std::tolower(c); });
+        
+        return lower_name.find("cache") != std::string::npos ||
+               lower_name.find("remote") != std::string::npos ||
+               lower_name.find("disk") != std::string::npos ||
+               lower_name.find("hit") != std::string::npos ||
+               lower_name.find("miss") != std::string::npos;
+    }
+    
+    void AnalyzeMemoryUsage() {
+        size_t peak_memory = 0;
+        size_t total_memory = 0;
+        size_t memory_samples = 0;
+        
+        for (const auto& event : events_) {
+            if (IsMemoryEvent(event->name)) {
+                std::regex memory_regex(R"((\d+)\s*(KB|MB|GB))");
+                std::smatch matches;
+                std::string name_lower = event->name;
+                std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+                
+                if (std::regex_search(name_lower, matches, memory_regex)) {
+                    if (matches.size() >= 3) {
+                        size_t memory_value = std::stoull(matches[1]);
+                        std::string unit = matches[2];
+                        
+                        if (unit == "MB") {
+                            memory_value *= 1024;
+                        } else if (unit == "GB") {
+                            memory_value *= 1024 * 1024;
+                        }
+                        
+                        peak_memory = std::max(peak_memory, memory_value);
+                        total_memory += memory_value;
+                        memory_samples++;
                     }
                 }
             }
-            report << "\n";
         }
         
-        // 阶段时间
-        if (analysis.contains("build_phases")) {
-            report << "4. BUILD PHASES:\n";
-            for (const auto& [phase, phase_info] : analysis["build_phases"].items()) {
-                report << "   " << phase << ": " << phase_info["time"] << "\n";
+        stats_.peak_memory_usage = peak_memory;
+        if (memory_samples > 0) {
+            stats_.average_memory_usage = total_memory / memory_samples;
+        }
+    }
+    
+    bool IsMemoryEvent(const std::string& event_name) const {
+        std::string lower_name;
+        std::transform(event_name.begin(), event_name.end(), std::back_inserter(lower_name),
+                       [](unsigned char c) { return std::tolower(c); });
+        
+        return lower_name.find("memory") != std::string::npos ||
+               lower_name.find("heap") != std::string::npos ||
+               lower_name.find("ram") != std::string::npos ||
+               lower_name.find("kb") != std::string::npos ||
+               lower_name.find("mb") != std::string::npos ||
+               lower_name.find("gb") != std::string::npos;
+    }
+    
+    void AnalyzeVFSOperations() {
+        // 已经在ParseProfileData中统计
+    }
+    
+    void CalculateTargetStatistics() {
+        // 简化实现
+    }
+    
+    void GenerateOptimizationSuggestions() {
+        suggestions_.clear();
+        
+        // 分析长时间运行的action
+        std::vector<std::shared_ptr<BuildEvent>> long_actions;
+        for (const auto& event : events_) {
+            if ((event->type == EventType::ACTION || event->type == EventType::EXECUTION) &&
+                event->duration.count() / 1000000.0 > 30.0) {
+                long_actions.push_back(event);
             }
-            report << "\n";
         }
         
-        // Action统计
-        if (analysis.contains("action_counts")) {
-            report << "5. ACTION COUNTS:\n";
-            for (const auto& [action, count] : analysis["action_counts"].items()) {
-                if (action != "total") {
-                    report << "   " << action << ": " << count << "\n";
-                }
-            }
-            report << "   Total actions: " << analysis["action_counts"]["total"] << "\n\n";
-        }
-        
-        // 缓存性能
-        if (analysis.contains("cache_performance")) {
-            const auto& cache = analysis["cache_performance"];
-            report << "6. CACHE PERFORMANCE:\n";
+        if (!long_actions.empty()) {
+            OptimizationSuggestion suggestion;
+            suggestion.issue = "发现长时间运行的构建action";
+            suggestion.severity = OptimizationSuggestion::Severity::HIGH;
+            suggestion.estimated_improvement = 15.0;
             
-            if (cache.contains("hits") && cache.contains("misses")) {
-                int hits = cache["hits"];
-                int misses = cache["misses"];
-                int total = hits + misses;
+            std::stringstream ss;
+            ss << "以下action执行时间超过30秒：\n";
+            for (size_t i = 0; i < std::min(long_actions.size(), size_t(5)); ++i) {
+                const auto& action = long_actions[i];
+                ss << "  - " << action->name << ": " << action->duration.count() / 1000000.0 << "s\n";
+                suggestion.affected_targets.push_back(action->name);
+            }
+            ss << "\n建议：\n";
+            ss << "1. 考虑拆分大型目标为多个小目标\n";
+            ss << "2. 检查是否有不必要的依赖\n";
+            ss << "3. 考虑使用远程执行或缓存\n";
+            
+            suggestion.suggestion = ss.str();
+            suggestions_.push_back(suggestion);
+        }
+        
+        // 分析并行度
+        if (stats_.max_concurrent_actions > 1 && 
+            stats_.average_concurrency < stats_.max_concurrent_actions * 0.3) {
+            OptimizationSuggestion suggestion;
+            suggestion.issue = "构建并行度不足";
+            suggestion.severity = OptimizationSuggestion::Severity::MEDIUM;
+            suggestion.estimated_improvement = 10.0;
+            
+            std::stringstream ss;
+            ss << "平均并发度: " << stats_.average_concurrency << "\n";
+            ss << "最大并发度: " << stats_.max_concurrent_actions << "\n";
+            ss << "并行度利用率: " 
+               << (stats_.average_concurrency / static_cast<double>(stats_.max_concurrent_actions) * 100) 
+               << "%\n\n";
+            ss << "建议：\n";
+            ss << "1. 增加--jobs参数\n";
+            ss << "2. 优化目标间的依赖关系减少串行化\n";
+            
+            suggestion.suggestion = ss.str();
+            suggestions_.push_back(suggestion);
+        }
+        
+        // 分析缓存效率
+        if (stats_.cache_hit_rate < 50.0 && stats_.cache_hits + stats_.cache_misses > 10) {
+            OptimizationSuggestion suggestion;
+            suggestion.issue = "缓存命中率较低";
+            suggestion.severity = OptimizationSuggestion::Severity::MEDIUM;
+            suggestion.estimated_improvement = 20.0;
+            
+            std::stringstream ss;
+            ss << "缓存命中率: " << stats_.cache_hit_rate << "%\n";
+            ss << "缓存命中: " << stats_.cache_hits << "\n";
+            ss << "缓存未命中: " << stats_.cache_misses << "\n\n";
+            ss << "建议：\n";
+            ss << "1. 确保使用--remote_cache参数\n";
+            ss << "2. 检查缓存服务器状态和网络连接\n";
+            
+            suggestion.suggestion = ss.str();
+            suggestions_.push_back(suggestion);
+        }
+    }
+    
+    void ExportReports() {
+        if (!is_analyzed_) {
+            return;
+        }
+        
+        try {
+            export_directory_ = EnsureDirectoryExists(export_directory_);
+            
+            std::string timestamp = GenerateTimestamp();
+            
+            // 生成文本报告
+            std::string report_filename = export_directory_ + "/build_analysis_" + timestamp + ".txt";
+            std::ofstream report_file(report_filename);
+            if (report_file.is_open()) {
+                std::stringstream report;
+                report << "===========================================================\n";
+                report << "              BAZEL BUILD TIME ANALYSIS REPORT             \n";
+                report << "===========================================================\n\n";
+                report << "Workspace: " << workspace_path_ << "\n";
+                report << "Bazel Binary: " << bazel_binary_ << "\n";
+                report << "Profile File: " << profile_path_ << "\n";
+                report << "Generated: " << timestamp << "\n\n";
                 
-                report << "   Hits: " << hits << "\n";
-                report << "   Misses: " << misses << "\n";
-                report << "   Total: " << total << "\n";
+                report << "Total Build Time: " << total_build_time_.count() / 1000000.0 << "s\n";
+                report << "Total Events: " << events_.size() << "\n\n";
                 
-                if (cache.contains("hit_rate_percent") && total > 0) {
-                    report << "   Hit rate: " << std::fixed << std::setprecision(2)
-                           << cache["hit_rate_percent"].get<double>() << "%\n";
+                report_file << report.str();
+                report_file.close();
+                analysis_result_.report_path = report_filename;
+            }
+            
+            // 导出CSV
+            std::string csv_filename = export_directory_ + "/build_events_" + timestamp + ".csv";
+            if (ExportToCSV(csv_filename)) {
+                analysis_result_.csv_path = csv_filename;
+            }
+            
+        } catch (const std::exception&) {
+            // 忽略导出错误
+        }
+    }
+    
+    std::string GenerateTimestamp() const {
+        auto now = std::chrono::system_clock::now();
+        auto in_time_t = std::chrono::system_clock::to_time_t(now);
+        
+        std::stringstream ss;
+        ss << std::put_time(std::localtime(&in_time_t), "%Y%m%d_%H%M%S");
+        return ss.str();
+    }
+    
+    std::string EnsureDirectoryExists(const std::string& dir_path) const {
+        try {
+            fs::path path(dir_path);
+            if (!fs::exists(path)) {
+                fs::create_directories(path);
+            }
+            return fs::absolute(path).string();
+        } catch (const std::exception&) {
+            return dir_path;
+        }
+    }
+    
+    bool ExportToCSV(const std::string& csv_path) const {
+        if (!is_analyzed_) {
+            return false;
+        }
+        
+        try {
+            std::ofstream csv_file(csv_path);
+            if (!csv_file.is_open()) {
+                return false;
+            }
+            
+            csv_file << "EventName,EventType,StartTime(us),Duration(us),"
+                     << "ThreadID,Category,PercentageOfTotal,Rule\n";
+            
+            for (const auto& event : events_) {
+                std::string type_str;
+                switch (event->type) {
+                    case EventType::ACTION: type_str = "ACTION"; break;
+                    case EventType::PACKAGE_LOAD: type_str = "PACKAGE_LOAD"; break;
+                    case EventType::ANALYSIS: type_str = "ANALYSIS"; break;
+                    case EventType::EXECUTION: type_str = "EXECUTION"; break;
+                    case EventType::VFS: type_str = "VFS"; break;
+                    default: type_str = "OTHER"; break;
                 }
+                
+                std::string escaped_name = event->name;
+                std::replace(escaped_name.begin(), escaped_name.end(), ',', ';');
+                std::replace(escaped_name.begin(), escaped_name.end(), '\"', '\'');
+                
+                csv_file << "\"" << escaped_name << "\","
+                         << type_str << ","
+                         << event->start_time.count() << ","
+                         << event->duration.count() << ","
+                         << event->thread_id << ","
+                         << event->category << ","
+                         << std::fixed << std::setprecision(2) << event->percentage_of_total << ","
+                         << "\"" << event->rule << "\"\n";
             }
-            report << "\n";
+            
+            csv_file.close();
+            return true;
+        } catch (const std::exception&) {
+            return false;
         }
-        
-        // 最耗时的目标
-        auto top_targets = getTopTimeConsumingTargets(5);
-        if (!top_targets.empty()) {
-            report << "7. TOP TIME-CONSUMING TARGETS:\n";
-            for (size_t i = 0; i < top_targets.size(); ++i) {
-                report << "   " << (i + 1) << ". " << top_targets[i].first << " (" 
-                       << formatDuration(top_targets[i].second / 1000.0) << ")\n";
-            }
-        }
-        
-        report << "\n========================================\n";
-        report << "           END OF REPORT              \n";
-        report << "========================================\n";
-        
-    } catch (const std::exception& e) {
-        report << "Error generating report: " << e.what() << "\n";
     }
-    
-    return report.str();
+};
+
+// BuildTimeAnalyzer 公共接口实现
+BuildTimeAnalyzer::BuildTimeAnalyzer(const std::string& workspace_path,
+                                     const std::string& bazel_binary)
+    : impl_(std::make_unique<Impl>(workspace_path, bazel_binary)) {}
+
+BuildTimeAnalyzer::~BuildTimeAnalyzer() = default;
+
+void BuildTimeAnalyzer::SetWorkspacePath(const std::string& workspace_path) {
+    impl_->SetWorkspacePath(workspace_path);
 }
 
-std::set<std::string> BuildTimeAnalyzer::getAllTargets() const {
-    std::set<std::string> targets;
-    
-    try {
-        auto profile_data = loadProfileJson();
-        
-        if (profile_data.contains("traceEvents")) {
-            for (const auto& event : profile_data["traceEvents"]) {
-                if (event.contains("args") && event["args"].contains("target")) {
-                    targets.insert(event["args"]["target"].get<std::string>());
-                }
-            }
-        }
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to get all targets: " + err);
-    }
-    
-    return targets;
+void BuildTimeAnalyzer::SetBazelBinary(const std::string& bazel_binary) {
+    impl_->SetBazelBinary(bazel_binary);
 }
 
-std::map<std::string, std::set<std::string>> BuildTimeAnalyzer::getTargetDependencies() const {
-    std::map<std::string, std::set<std::string>> dependencies;
-    
-    try {
-        auto profile_data = loadProfileJson();
-        
-        // TODO 这里可以添加从profile中提取依赖关系的逻辑
-        // 这需要分析事件之间的父子关系
-        
-        LOG_WARN("Target dependency extraction not fully implemented");
-        
-    } catch (const std::exception& e) {
-        std::string err = e.what();
-        LOG_ERROR("Failed to get target dependencies: " + err);
-    }
-    
-    return dependencies;
+void BuildTimeAnalyzer::SetBuildTargets(const std::vector<std::string>& targets) {
+    impl_->SetBuildTargets(targets);
 }
 
-void BuildTimeAnalyzer::cleanupProfile() const {
-    try {
-        if (fs::exists(profile_file_path_)) {
-            fs::remove(profile_file_path_);
-            LOG_INFO("Cleaned up profile file: " + profile_file_path_);
-        }
-    } catch (const fs::filesystem_error& e) {
-        std::string err = e.what();
-        LOG_WARN("Failed to cleanup profile file: " + err);
-    }
+AnalysisResult BuildTimeAnalyzer::RunFullAnalysis(const std::vector<std::string>& targets,
+                                                 bool force_regenerate) {
+    return impl_->RunFullAnalysis(targets, force_regenerate);
 }
 
-void BuildTimeAnalyzer::setCustomProfileOptions(const std::string& options) {
-    profile_options_ = options;
+std::vector<CriticalPathNode> BuildTimeAnalyzer::GetCriticalPath() const {
+    return impl_->GetCriticalPath();
 }
 
-std::string BuildTimeAnalyzer::getProfilePath() const {
-    return profile_file_path_;
+std::vector<OptimizationSuggestion> BuildTimeAnalyzer::GetOptimizationSuggestions() const {
+    return impl_->GetOptimizationSuggestions();
 }
 
-std::string BuildTimeAnalyzer::formatDuration(double seconds) const {
-    if (seconds < 1.0) {
-        return std::to_string(static_cast<int>(seconds * 1000)) + " ms";
-    } else if (seconds < 60.0) {
-        return std::to_string(static_cast<int>(seconds)) + " s";
-    } else if (seconds < 3600.0) {
-        int minutes = static_cast<int>(seconds / 60);
-        int secs = static_cast<int>(seconds) % 60;
-        return std::to_string(minutes) + " m " + std::to_string(secs) + " s";
-    } else {
-        int hours = static_cast<int>(seconds / 3600);
-        int minutes = static_cast<int>((seconds - hours * 3600) / 60);
-        return std::to_string(hours) + " h " + std::to_string(minutes) + " m";
-    }
+BuildPhaseStats BuildTimeAnalyzer::GetBuildStats() const {
+    return impl_->GetBuildStats();
 }
 
-std::string BuildTimeAnalyzer::formatMemory(size_t bytes) const {
-    const double KB = 1024.0;
-    const double MB = KB * 1024.0;
-    const double GB = MB * 1024.0;
-    
-    std::stringstream ss;
-    ss << std::fixed << std::setprecision(2);
-    
-    if (bytes >= GB) {
-        ss << (bytes / GB) << " GB";
-    } else if (bytes >= MB) {
-        ss << (bytes / MB) << " MB";
-    } else if (bytes >= KB) {
-        ss << (bytes / KB) << " KB";
-    } else {
-        ss << bytes << " B";
-    }
-    
-    return ss.str();
+void BuildTimeAnalyzer::ClearAnalysis() {
+    impl_->ClearAnalysis();
 }
+
+} // namespace bazel_analyzer

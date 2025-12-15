@@ -38,16 +38,23 @@ public:
     }
 
     void analyzeBuildTime() {
-        timer = new BuildTimeAnalyzer(args->bazel_binary, args->workspace_path);
-        if (timer->createProfile("//...")) {
-            // 生成报告
-            std::string report = timer->generateBuildReport();
-            std::cout << report << std::endl;
+        timer = new bazel_analyzer::BuildTimeAnalyzer(args->bazel_binary, args->workspace_path);
+        timer->SetBuildTargets({"\\..."});
+        bazel_analyzer::AnalysisResult result = timer->RunFullAnalysis();
+    
+        if (result.success) {
+            std::cout << "分析成功!" << std::endl;
+            std::cout << "构建时间: " << result.stats.total_duration.count() / 1000000.0 << "s" << std::endl;
             
-            // 或者获取JSON格式的分析结果
-            auto analysis = timer->analyzeProfile();
-            std::cout << analysis.dump(2) << std::endl;
+            // 获取优化建议
+            auto suggestions = timer->GetOptimizationSuggestions();
+            for (const auto& suggestion : suggestions) {
+                std::cout << "建议: " << suggestion.issue << std::endl;
+            }
+        } else {
+            std::cerr << "分析失败: " << result.error_message << std::endl;
         }
+
     }
 
 private:
@@ -55,7 +62,7 @@ private:
     DependencyGraph* dependencyer;
     CycleDetector* detector;
     OutputReport* report;
-    BuildTimeAnalyzer* timer;
+    bazel_analyzer::BuildTimeAnalyzer* timer;
     std::unordered_map<std::string, BazelTarget> targets;
 };
 

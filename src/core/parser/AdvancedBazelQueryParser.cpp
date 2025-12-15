@@ -120,53 +120,69 @@ void AdvancedBazelQueryParser::QueryTargetDetails(BazelTarget& target) {
     try {
         std::string target_label = target.full_label.empty() ? 
             target.path + target.name : target.full_label;
-        
-        // 1. 查询规则类型
-        if (target.rule_type.empty()) {
-            try {
-                std::string kind_query = "query 'kind(rule, " + target_label + ")' --output=label_kind" + query_etr_command;
-                std::string kind_output = ExecuteBazelCommand(kind_query);
-                target.rule_type = ExtractRuleType(kind_output);
-            } catch (const std::exception& e) {
-                LOG_WARN("Failed to query rule type for " + target_label + ": " + std::string(e.what()));
+        try {
+            std::string unified_query =
+                "query 'kind(\".* rule\", " + target_label + ") "
+                "union kind(\".* rule\", deps(" + target_label + ", 1)) "
+                "union labels(srcs, " + target_label + ") "
+                "union labels(hdrs, " + target_label + ")' "
+                "--output=label_kind" + query_etr_command;
+
+            std::string unified_output = ExecuteBazelCommand(unified_query);
+            std::vector<std::string> lines = SplitLines(unified_output);
+
+            for (const auto& line : lines) {
+                if (line.empty()) continue;
+
+                std::istringstream iss(line);
+                std::string kind_word;
+                std::string type_word;
+                std::string label;
+
+                if (!(iss >> kind_word >> type_word >> label)) {
+                    continue;
+                }
+
+                if (type_word == "rule") {
+                    if (label == target_label) {
+                        if (target.rule_type.empty()) {
+                            target.rule_type = kind_word;
+                        }
+                        continue;
+                    }
+
+#ifndef CHECK_EXTERN_DEPS
+                    if (!label.empty() && label.find("@") != 0) {
+                        target.deps.push_back(label);
+                    }
+#endif // CHECK_EXTERN_DEPS
+                    continue;
+                }
+
+                std::string file_path = ConvertBazelLabelToPath(label);
+                if (file_path.empty()) {
+                    continue;
+                }
+
+                auto lower_ext_pos = file_path.find_last_of('.');
+                std::string ext = (lower_ext_pos != std::string::npos)
+                                      ? file_path.substr(lower_ext_pos)
+                                      : "";
+
+                if (ext == ".h" || ext == ".hpp" || ext == ".hh" || ext == ".hxx") {
+                    target.hdrs.push_back(file_path);
+                } else {
+                    target.srcs.push_back(file_path);
+                }
+            }
+
+            // 未拿到规则类型
+            if (target.rule_type.empty()) {
                 target.rule_type = "unknown";
             }
-        }
-        
-        // 2. 查询源文件
-        try {
-            std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label" + query_etr_command;
-            std::string srcs_output = ExecuteBazelCommand(srcs_query);
-            std::vector<std::string> src_labels = SplitLines(srcs_output);
-            
-            for (const auto& src_label : src_labels) {
-                std::string src_path = ConvertBazelLabelToPath(src_label);
-                if (!src_path.empty()) {
-                    target.srcs.push_back(src_path);
-                }
-            }
-            
-            std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label" + query_etr_command;
-            std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
-            std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
-            
-            for (const auto& hdr_label : hdr_labels) {
-                std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
-                if (!hdr_path.empty()) {
-                    target.hdrs.push_back(hdr_path);
-                }
-            }
+
         } catch (const std::exception& e) {
-            LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
-        }
-        
-        // 3. 查询直接依赖
-        try {
-            std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label" + query_etr_command;
-            std::string deps_output = ExecuteBazelCommand(deps_query);
-            target.deps = ExtractDependencies(target_label, deps_output);
-        } catch (const std::exception& e) {
-            LOG_WARN("Failed to query dependencies for " + target_label + ": " + std::string(e.what()));
+            LOG_WARN("Failed to query unified details for " + target_label + ": " + std::string(e.what()));
         }
         
     } catch (const std::exception& e) {
@@ -323,88 +339,9 @@ BazelTarget AdvancedBazelQueryParser::ProcessSingleTarget(const std::string& lab
     
     target.path = ConvertBazelLabelToPath(target_path);
     
-    // 并发查询目标详情
-    QueryTargetDetailsConcurrent(target);
+    QueryTargetDetails(target);
     
     return target;
-}
-
-void AdvancedBazelQueryParser::QueryTargetDetailsConcurrent(BazelTarget& target) {
-    try {
-        std::string target_label = target.full_label.empty() ? 
-            target.path + target.name : target.full_label;
-        
-        // 并发执行多个查询
-        std::vector<std::future<void>> futures;
-        
-        // 1. 查询规则类型
-        if (target.rule_type.empty()) {
-            futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
-                try {
-                    std::string kind_query = "query 'kind(rule, " + target_label + ")' --output=label_kind" + query_etr_command;
-                    std::string kind_output = ExecuteBazelCommand(kind_query);
-                    target.rule_type = ExtractRuleType(kind_output);
-                } catch (const std::exception& e) {
-                    LOG_WARN("Failed to query rule type for " + target_label + ": " + std::string(e.what()));
-                    target.rule_type = "unknown";
-                }
-            }));
-        }
-        
-        // 2. 查询源文件
-        futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
-            try {
-                std::string srcs_query = "query 'labels(srcs, " + target_label + ")' --output=label" + query_etr_command;
-                std::string srcs_output = ExecuteBazelCommand(srcs_query);
-                std::vector<std::string> src_labels = SplitLines(srcs_output);
-                
-                std::vector<std::string> srcs;
-                for (const auto& src_label : src_labels) {
-                    std::string src_path = ConvertBazelLabelToPath(src_label);
-                    if (!src_path.empty()) {
-                        srcs.push_back(src_path);
-                    }
-                }
-                
-                std::string hdrs_query = "query 'labels(hdrs, " + target_label + ")' --output=label" + query_etr_command;
-                std::string hdrs_output = ExecuteBazelCommand(hdrs_query);
-                std::vector<std::string> hdr_labels = SplitLines(hdrs_output);
-                
-                std::vector<std::string> hdrs;
-                for (const auto& hdr_label : hdr_labels) {
-                    std::string hdr_path = ConvertBazelLabelToPath(hdr_label);
-                    if (!hdr_path.empty()) {
-                        hdrs.push_back(hdr_path);
-                    }
-                }
-                
-                // 更新目标
-                target.srcs = std::move(srcs);
-                target.hdrs = std::move(hdrs);
-            } catch (const std::exception& e) {
-                LOG_WARN("Failed to query sources for " + target_label + ": " + std::string(e.what()));
-            }
-        }));
-        
-        // 3. 查询依赖
-        futures.push_back(std::async(std::launch::async, [this, &target, target_label]() {
-            try {
-                std::string deps_query = "query 'kind(rule, deps(" + target_label + "))' --output=label" + query_etr_command;
-                std::string deps_output = ExecuteBazelCommand(deps_query);
-                target.deps = ExtractDependencies(target_label, deps_output);
-            } catch (const std::exception& e) {
-                LOG_WARN("Failed to query dependencies for " + target_label + ": " + std::string(e.what()));
-            }
-        }));
-        
-        // 等待所有查询完成
-        for (auto& future : futures) {
-            future.get();
-        }
-        
-    } catch (const std::exception& e) {
-        LOG_ERROR("Concurrent query failed for " + target.full_label + ": " + std::string(e.what()));
-    }
 }
 
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseAllTargetsFallback() {

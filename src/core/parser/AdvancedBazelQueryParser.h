@@ -54,8 +54,10 @@ private:
     
     // 目标详情查询
     void QueryTargetDetails(BazelTarget& target);
-    void QueryTargetDetailsConcurrent(BazelTarget& target);
     
+    // 解析输出内容
+    std::string ExtractRuleTypeFromLabel(const std::string& label);
+
     // 命令执行
     std::string ExecuteBazelCommand(const std::string& command);
     

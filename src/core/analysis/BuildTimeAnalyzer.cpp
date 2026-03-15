@@ -463,7 +463,7 @@ private:
         }
     }
     
-    void ParseGenerationOutput(const std::string& output, int exit_code) {
+    void ParseGenerationOutput(const std::string& output, [[maybe_unused]] int exit_code) {
         // 简单解析输出，获取基本信息
         std::regex action_count_regex(R"((\d+)\s+action(s?)\s+completed)");
         std::smatch matches;

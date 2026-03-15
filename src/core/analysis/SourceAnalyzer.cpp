@@ -1,12 +1,43 @@
 #include "SourceAnalyzer.h"
 #include <fstream>
-#include <regex>
 #include <algorithm>
 #include <stack>
 #include <string>
+#include <filesystem>
+
+namespace fs = std::filesystem;
+
+namespace {
+
+std::string GetFileName(const std::string& file_path) {
+    return fs::path(file_path).filename().string();
+}
+
+void MergeIncludes(const std::unordered_set<std::string>& includes, TargetAnalysis& analysis) {
+    analysis.included_headers.insert(includes.begin(), includes.end());
+    for (const auto& include : includes) {
+        analysis.included_header_names.insert(GetFileName(include));
+    }
+}
+
+}  // namespace
 
 SourceAnalyzer::SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path) 
     : workspace_path_(workspace_path), targets_(targets) {
+    for (const auto& [target_name, target] : targets_) {
+        for (const auto& hdr : target.hdrs) {
+            const std::string extension = GetFileExtension(hdr);
+            if (IsHeaderFileExtension(extension)) {
+                provided_header_to_targets_[GetFileName(hdr)].insert(target_name);
+            }
+        }
+        for (const auto& src : target.srcs) {
+            const std::string extension = GetFileExtension(src);
+            if (IsHeaderFileExtension(extension)) {
+                provided_header_to_targets_[GetFileName(src)].insert(target_name);
+            }
+        }
+    }
 }
 
 SourceAnalyzer::~SourceAnalyzer() {
@@ -27,11 +58,13 @@ void SourceAnalyzer::AnalyzeTarget(const std::string& target_name) {
     for (const auto& hdrs : target.hdrs) {
         std::string extension = GetFileExtension(hdrs);
         if (IsHeaderFileExtension(extension)) {
-            // 提取头文件名
-            size_t last_slash = hdrs.find_last_of('/');
-            std::string header_name = (last_slash != std::string::npos) ? 
-                hdrs.substr(last_slash + 1) : hdrs;
-            analysis.provided_headers.insert(header_name);
+            analysis.provided_headers.insert(GetFileName(hdrs));
+
+            HeaderInfo hdr_info;
+            if (ParseHeaderFile(hdrs, hdr_info)) {
+                MergeIncludes(hdr_info.includes, analysis);
+                RecursivelyAnalyzeHeaderIncludes(hdrs, hdr_info.includes, analysis);
+            }
         }
     }
     
@@ -41,22 +74,16 @@ void SourceAnalyzer::AnalyzeTarget(const std::string& target_name) {
         if (IsSourceFileExtension(extension)) {
             SourceInfo src_info;
             if (ParseSourceFile(src, src_info)) {
-                analysis.source_files.push_back(src_info);
-                
-                // 收集所有包含的头文件
-                analysis.included_headers.insert(
-                    src_info.includes.begin(),
-                    src_info.includes.end()
-                );
-                
-                // 递归分析包含的头文件
+                MergeIncludes(src_info.includes, analysis);
                 RecursivelyAnalyzeHeaderIncludes(src, src_info.includes, analysis);
             }
         }
         else if (IsHeaderFileExtension(extension)) {
             HeaderInfo hdr_info;
             if (ParseHeaderFile(src, hdr_info)) {
-                analysis.header_files.push_back(hdr_info);
+                analysis.provided_headers.insert(GetFileName(src));
+                MergeIncludes(hdr_info.includes, analysis);
+                RecursivelyAnalyzeHeaderIncludes(src, hdr_info.includes, analysis);
             }
         }
     }
@@ -67,122 +94,176 @@ void SourceAnalyzer::AnalyzeTarget(const std::string& target_name) {
     analyzed_targets_.insert(target_name);
 }
 
-void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes(const std::string& source_file, 
+void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes([[maybe_unused]] const std::string& source_file,
                                                     const std::unordered_set<std::string>& direct_includes,
                                                     TargetAnalysis& analysis) {
-    std::unordered_set<std::string> visited_headers;
-    std::stack<std::string> to_analyze;
-    
-    // 初始化栈只留下项目文件
     for (const auto& header : direct_includes) {
-        if(header.find(".h") != std::string::npos ||
-            header.find(".hpp") != std::string::npos) {
-            to_analyze.push(header);
-        }
-    }
-    
-    while (!to_analyze.empty()) {
-        std::string header_name = to_analyze.top();
-        to_analyze.pop();
-        
-        // 防止循环包含
-        if (visited_headers.find(header_name) != visited_headers.end()) {
+        if (header.find(".h") == std::string::npos && header.find(".hpp") == std::string::npos) {
             continue;
         }
-        visited_headers.insert(header_name);
-        
-        // 查找头文件路径
-        std::string header_path = FindHeaderPath(header_name);
-        if (header_path.empty()) {
-            LOG_DEBUG("Cannot find header file: " + header_name);
-            continue;
-        }
-        
-        // 解析头文件
-        HeaderInfo hdr_info;
-        if (ParseHeaderFile(header_path, hdr_info)) {
-            // 将新发现的头文件加入待分析栈
-            for (const auto& include : hdr_info.includes) {
-                if (visited_headers.find(include) == visited_headers.end()) {
-                    to_analyze.push(include);
-                }
-            }
-        }
+        const auto& recursive_includes = GetRecursiveHeaderIncludes(header);
+        MergeIncludes(recursive_includes, analysis);
     }
 }
 
-std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
-    // 在工作区目录中查找
-    std::string full_path = workspace_path_ + "/" + header_name;
-    std::ifstream test(full_path);
-    if (test.is_open()) {
-        test.close();
-        return full_path;
+const std::unordered_set<std::string>& SourceAnalyzer::GetRecursiveHeaderIncludes(
+    const std::string& header_name) {
+    const std::string header_path = FindHeaderPath(header_name);
+    if (header_path.empty()) {
+        static const std::unordered_set<std::string> empty_set;
+        return empty_set;
     }
-    
+
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        auto cache_it = recursive_header_includes_cache_.find(header_path);
+        if (cache_it != recursive_header_includes_cache_.end()) {
+            return cache_it->second;
+        }
+    }
+
+    std::unordered_set<std::string> visited_headers;
+    std::unordered_set<std::string> aggregate_includes;
+    std::stack<std::string> to_analyze;
+    to_analyze.push(header_name);
+
+    while (!to_analyze.empty()) {
+        std::string current_header = to_analyze.top();
+        to_analyze.pop();
+
+        if (!visited_headers.insert(current_header).second) {
+            continue;
+        }
+
+        const std::string current_path = FindHeaderPath(current_header);
+        if (current_path.empty()) {
+            continue;
+        }
+
+        HeaderInfo hdr_info;
+        if (!ParseHeaderFile(current_path, hdr_info)) {
+            continue;
+        }
+
+        for (const auto& include : hdr_info.includes) {
+            if (aggregate_includes.insert(include).second &&
+                (include.find(".h") != std::string::npos || include.find(".hpp") != std::string::npos)) {
+                to_analyze.push(include);
+            }
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(analysis_mutex_);
+    auto [inserted_it, _] =
+        recursive_header_includes_cache_.emplace(header_path, std::move(aggregate_includes));
+    return inserted_it->second;
+}
+
+std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
+    std::lock_guard<std::mutex> lock(analysis_mutex_);
+    auto cache_it = header_path_cache_.find(header_name);
+    if (cache_it != header_path_cache_.end()) {
+        return cache_it->second;
+    }
+
+    const std::string resolved_path = ResolveWorkspacePath(header_name);
+    header_path_cache_[header_name] = resolved_path;
+    return resolved_path;
+}
+
+std::string SourceAnalyzer::ResolveWorkspacePath(const std::string& file_path) const {
+    if (file_path.empty()) {
+        return "";
+    }
+
+    const fs::path input_path(file_path);
+    if (input_path.is_absolute() && fs::exists(input_path)) {
+        return input_path.string();
+    }
+
+    const fs::path workspace_candidate = fs::path(workspace_path_) / input_path;
+    if (fs::exists(workspace_candidate)) {
+        return workspace_candidate.string();
+    }
+
+    if (fs::exists(input_path)) {
+        return input_path.string();
+    }
+
     return "";
 }
 
 bool SourceAnalyzer::ParseSourceFile(const std::string& file_path, SourceInfo& result) {
-    // 提取文件名
-    size_t last_slash = file_path.find_last_of('/');
-    if (last_slash != std::string::npos) {
-        result.file_name = file_path.substr(last_slash + 1);
-    } else {
-        result.file_name = file_path;
-    }
-    result.path = file_path;
-    
-    std::ifstream file(file_path);
-    if (!file.is_open()) {
-        LOG_WARN("Cannot open source file: " + file_path);
-        return false;
-    }
-    
-    std::string line;
-    
-    while (std::getline(file, line)) {
-        // 提取包含的头文件
-        ExtractIncludesFromLine(line, result.includes);
-    }
-    
-    return true;
+    const std::string resolved_path = ResolveWorkspacePath(file_path);
+    result.file_name = GetFileName(file_path);
+    result.path = resolved_path.empty() ? file_path : resolved_path;
+    return ParseIncludesFromFile(result.path, result.includes, result.file_name);
 }
 
 bool SourceAnalyzer::ParseHeaderFile(const std::string& file_path, HeaderInfo& result) {
-    // 提取文件名
-    size_t last_slash = file_path.find_last_of('/');
-    if (last_slash != std::string::npos) {
-        result.file_name = file_path.substr(last_slash + 1);
-    } else {
-        result.file_name = file_path;
+    const std::string resolved_path = ResolveWorkspacePath(file_path);
+    result.file_name = GetFileName(file_path);
+    result.path = resolved_path.empty() ? file_path : resolved_path;
+    return ParseIncludesFromFile(result.path, result.includes, result.file_name);
+}
+
+bool SourceAnalyzer::ParseIncludesFromFile(
+    const std::string& resolved_path,
+    std::unordered_set<std::string>& includes,
+    std::string& file_name) {
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        auto cache_it = parsed_includes_cache_.find(resolved_path);
+        if (cache_it != parsed_includes_cache_.end()) {
+            includes = cache_it->second;
+            if (file_name.empty()) {
+                file_name = GetFileName(resolved_path);
+            }
+            return true;
+        }
     }
-    result.path = file_path;
-    
-    std::ifstream file(file_path);
+
+    std::ifstream file(resolved_path);
     if (!file.is_open()) {
-        LOG_WARN("Cannot open header file: " + file_path);
+        LOG_WARN("Cannot open file: " + resolved_path);
         return false;
     }
-    
+
+    std::unordered_set<std::string> parsed_includes;
     std::string line;
-    
     while (std::getline(file, line)) {
-        // 提取包含的头文件
-        ExtractIncludesFromLine(line, result.includes);
+        ExtractIncludesFromLine(line, parsed_includes);
     }
-    
+
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        parsed_includes_cache_[resolved_path] = parsed_includes;
+    }
+
+    includes = std::move(parsed_includes);
+    if (file_name.empty()) {
+        file_name = GetFileName(resolved_path);
+    }
     return true;
 }
 
 void SourceAnalyzer::ExtractIncludesFromLine(const std::string& line, std::unordered_set<std::string>& includes) {
-    // 匹配 #include ""
-    std::regex include_regex(R"!(#\s*include\s*"([^"]+)")!");
-    std::smatch match;
-    
-    if (std::regex_search(line, match, include_regex)) {
-        includes.insert(match[1].str());
+    const size_t include_pos = line.find("#include");
+    if (include_pos == std::string::npos) {
+        return;
     }
+
+    const size_t first_quote = line.find('"', include_pos);
+    if (first_quote == std::string::npos) {
+        return;
+    }
+
+    const size_t second_quote = line.find('"', first_quote + 1);
+    if (second_quote == std::string::npos || second_quote <= first_quote + 1) {
+        return;
+    }
+
+    includes.insert(line.substr(first_quote + 1, second_quote - first_quote - 1));
 }
 
 bool SourceAnalyzer::IsHeaderUsed(const std::string& target_name, const std::string& header_path) {
@@ -193,15 +274,9 @@ bool SourceAnalyzer::IsHeaderUsed(const std::string& target_name, const std::str
     if (it == target_analysis_.end()) {
         return false;
     }
-    
-    const auto& analysis = it->second;
-    // 提取头文件名
-    size_t last_slash = header_path.find_last_of('/');
-    std::string header_name = (last_slash != std::string::npos) ? 
-        header_path.substr(last_slash + 1) : header_path;
-    
-    // 检查是否包含了这个头文件
-    return analysis.included_headers.find(header_name) != analysis.included_headers.end();
+
+    return it->second.included_header_names.find(GetFileName(header_path)) !=
+           it->second.included_header_names.end();
 }
 
 bool SourceAnalyzer::IsDependencyNeeded(const std::string& target_name, const std::string& dependency) {
@@ -210,47 +285,58 @@ bool SourceAnalyzer::IsDependencyNeeded(const std::string& target_name, const st
         // 自依赖不应该存在
         return false;
     }
-    
-    EnsureTargetAnalyzed(target_name);
-    EnsureTargetAnalyzed(dependency);
-    
-    // 获取目标包含的所有头文件
-    const std::unordered_set<std::string>& target_headers = GetTargetIncludedHeaders(target_name);
-    if (target_headers.empty()) {
-        LOG_DEBUG("Target " + target_name + " includes no headers");
-        return false;
-    }
-    
-    // 获取依赖提供的所有头文件
-    const std::unordered_set<std::string>& dep_headers = GetTargetProvidedHeaders(dependency);
-    if (dep_headers.empty()) {
-        LOG_DEBUG("Dependency " + dependency + " provides no headers");
-        return false;
-    }
-    
-    LOG_DEBUG("Checking if " + target_name + " needs " + dependency);
-    LOG_DEBUG("Target includes " + std::to_string(target_headers.size()) + " headers");
-    LOG_DEBUG("Dependency provides " + std::to_string(dep_headers.size()) + " headers");
-    
-    for (const auto& dep_header : dep_headers) {
-        for (const auto& target_header : target_headers) {
-            // 提取 target_header 的文件名部分
-            size_t last_slash = target_header.find_last_of('/');
-            std::string target_header_name = (last_slash != std::string::npos) ? 
-                target_header.substr(last_slash + 1) : target_header;
-            
-            if (target_header_name == dep_header) {
-                LOG_DEBUG("Target " + target_name + " uses header " + dep_header + " from " + dependency + " (matched with " + target_header + ")");
-                return true;
-            }
+
+    const std::string cache_key = target_name + '\n' + dependency;
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        auto cache_it = dependency_needed_cache_.find(cache_key);
+        if (cache_it != dependency_needed_cache_.end()) {
+            return cache_it->second;
         }
     }
     
+    EnsureTargetAnalyzed(target_name);
+
+    std::lock_guard<std::mutex> lock(analysis_mutex_);
+    const auto target_it = target_analysis_.find(target_name);
+    if (target_it == target_analysis_.end()) {
+        dependency_needed_cache_[cache_key] = false;
+        return false;
+    }
+
+    const auto& target_header_names = target_it->second.included_header_names;
+    if (target_header_names.empty()) {
+        LOG_DEBUG("Target " + target_name + " includes no headers");
+        dependency_needed_cache_[cache_key] = false;
+        return false;
+    }
+
+    LOG_DEBUG("Checking if " + target_name + " needs " + dependency);
+    LOG_DEBUG("Target includes " + std::to_string(target_header_names.size()) + " headers");
+    for (const auto& included_header : target_header_names) {
+        const auto provider_it = provided_header_to_targets_.find(included_header);
+        if (provider_it != provided_header_to_targets_.end() &&
+            provider_it->second.find(dependency) != provider_it->second.end()) {
+            LOG_DEBUG("Target " + target_name + " uses header " + included_header + " from " + dependency);
+            dependency_needed_cache_[cache_key] = true;
+            return true;
+        }
+    }
+
     LOG_DEBUG("Dependency " + dependency + " is NOT needed by " + target_name);
+    dependency_needed_cache_[cache_key] = false;
     return false;
 }
 
 std::vector<RemovableDependency> SourceAnalyzer::GetRemovableDependencies(const std::string& target_name) {
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        auto cache_it = removable_dependencies_cache_.find(target_name);
+        if (cache_it != removable_dependencies_cache_.end()) {
+            return cache_it->second;
+        }
+    }
+
     std::vector<RemovableDependency> removable_deps;
     
     auto target_it = targets_.find(target_name);
@@ -291,7 +377,11 @@ std::vector<RemovableDependency> SourceAnalyzer::GetRemovableDependencies(const 
             LOG_DEBUG("Dependency " + dep + " is needed by " + target_name);
         }
     }
-    
+
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        removable_dependencies_cache_[target_name] = removable_deps;
+    }
     return removable_deps;
 }
 
@@ -401,10 +491,10 @@ std::vector<std::string> SourceAnalyzer::GetTargetHeaderFiles(const std::string&
     std::vector<std::string> paths;
     auto it = targets_.find(target_name);
     if (it != targets_.end()) {
-        for (const auto& src : it->second.srcs) {
-            std::string ext = GetFileExtension(src);
+        for (const auto& hdr : it->second.hdrs) {
+            std::string ext = GetFileExtension(hdr);
             if (IsHeaderFileExtension(ext)) {
-                paths.push_back(src);
+                paths.push_back(hdr);
             }
         }
     }
@@ -415,10 +505,16 @@ void SourceAnalyzer::ClearCache() {
     std::lock_guard<std::mutex> lock(analysis_mutex_);
     target_analysis_.clear();
     analyzed_targets_.clear();
+    header_path_cache_.clear();
+    parsed_includes_cache_.clear();
+    recursive_header_includes_cache_.clear();
+    dependency_needed_cache_.clear();
+    removable_dependencies_cache_.clear();
 }
 
 void SourceAnalyzer::ClearTargetCache(const std::string& target_name) {
     std::lock_guard<std::mutex> lock(analysis_mutex_);
     target_analysis_.erase(target_name);
     analyzed_targets_.erase(target_name);
+    removable_dependencies_cache_.erase(target_name);
 }

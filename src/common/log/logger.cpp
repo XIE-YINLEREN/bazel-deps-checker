@@ -8,7 +8,7 @@
 #endif
 
 Logger::Logger() 
-    : currentLevel_(LogLevel::DEBUG)
+    : currentLevel_(LogLevel::WARN)
     , consoleOutput_(true)
     , fileOutput_(false)
     , colorSupport_(true) {

@@ -1,11 +1,92 @@
 #include "AdvancedBazelQueryParser.h"
 #include "pipe.h"
+#include <filesystem>
 #include <future>
-#include <vector>
 #include <mutex>
 #include <functional>
+#include <memory>
+#include <vector>
 
 namespace fs = std::filesystem;
+
+namespace {
+
+struct ParsedWorkspaceCacheEntry {
+    std::shared_ptr<std::unordered_map<std::string, BazelTarget>> targets;
+    std::string fingerprint;
+};
+
+std::mutex& GetParsedWorkspaceCacheMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_map<std::string, ParsedWorkspaceCacheEntry>& GetParsedWorkspaceCache() {
+    static std::unordered_map<std::string, ParsedWorkspaceCacheEntry> cache;
+    return cache;
+}
+
+std::string BuildWorkspaceFingerprint(const std::string& workspace_path) {
+    fs::path workspace(workspace_path);
+    if (!fs::exists(workspace) || !fs::is_directory(workspace)) {
+        return "missing";
+    }
+
+    uintmax_t file_count = 0;
+    long long latest_write = 0;
+    auto update_from_path = [&](const fs::path& path) {
+        std::error_code ec;
+        const auto time = fs::last_write_time(path, ec);
+        if (ec) {
+            return;
+        }
+        const auto raw = time.time_since_epoch().count();
+        if (raw > latest_write) {
+            latest_write = raw;
+        }
+        ++file_count;
+    };
+
+    for (const auto& name : {"WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"}) {
+        fs::path path = workspace / name;
+        if (fs::exists(path)) {
+            update_from_path(path);
+        }
+    }
+
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(workspace, ec), end; it != end; it.increment(ec)) {
+        if (ec) {
+            break;
+        }
+        if (!it->is_regular_file()) {
+            continue;
+        }
+
+        const std::string filename = it->path().filename().string();
+        if (filename == "BUILD" || filename == "BUILD.bazel") {
+            update_from_path(it->path());
+        }
+    }
+
+    return std::to_string(file_count) + ":" + std::to_string(latest_write);
+}
+
+std::string BuildParserCacheKey(const std::string& workspace_path, const std::string& bazel_binary) {
+    return workspace_path + '\n' + bazel_binary;
+}
+
+}  // namespace
+
+void AdvancedBazelQueryParser::ClearWorkspaceCache() {
+    std::lock_guard<std::mutex> lock(GetParsedWorkspaceCacheMutex());
+    GetParsedWorkspaceCache().clear();
+}
+
+size_t AdvancedBazelQueryParser::GetWorkspaceCacheSize() {
+    std::lock_guard<std::mutex> lock(GetParsedWorkspaceCacheMutex());
+    return GetParsedWorkspaceCache().size();
+}
 
 AdvancedBazelQueryParser::AdvancedBazelQueryParser(
     const std::string& workspace_path, const std::string& bazel_binary)
@@ -16,6 +97,18 @@ AdvancedBazelQueryParser::AdvancedBazelQueryParser(
 
 std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWorkspace() {
     std::unordered_map<std::string, BazelTarget> targets;
+    const std::string cache_key = BuildParserCacheKey(workspace_path, bazel_binary);
+    const std::string fingerprint = BuildWorkspaceFingerprint(workspace_path);
+
+    {
+        std::lock_guard<std::mutex> lock(GetParsedWorkspaceCacheMutex());
+        auto& cache = GetParsedWorkspaceCache();
+        auto it = cache.find(cache_key);
+        if (it != cache.end() && it->second.fingerprint == fingerprint && it->second.targets) {
+            LOG_INFO("Reusing cached parsed workspace targets");
+            return *it->second.targets;
+        }
+    }
     
     try {
         ChangeToWorkspaceDirectory();
@@ -28,14 +121,23 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWork
         targets = ParseWithComprehensiveQuery();
         
     } catch (const std::exception& e) {
-        std::cerr << "Comprehensive query failed: " << e.what() 
-                  << ", falling back to concurrent queries" << std::endl;
+        LOG_WARN("Comprehensive query failed: " + std::string(e.what()) +
+                 ", falling back to concurrent queries");
         
         // 回退到并发查询
         targets = ParseWithConcurrentQueries();
     }
 
     RestoreOriginalDirectory();
+
+    {
+        std::lock_guard<std::mutex> lock(GetParsedWorkspaceCacheMutex());
+        GetParsedWorkspaceCache()[cache_key] =
+            ParsedWorkspaceCacheEntry{
+                std::make_shared<std::unordered_map<std::string, BazelTarget>>(targets),
+                fingerprint};
+    }
+
     return targets;
 }
 
@@ -78,10 +180,11 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWith
         if (line.empty()) continue;
         
         BazelTarget target = ParseTargetFromLabelKind(line);
-        if (!target.empty()) {
-            // 依赖源文件查询
-            QueryTargetDetails(target);
+        if (target.empty()) {
+            continue;
         }
+
+        QueryTargetDetails(target);
         targets.insert({target.full_label, target});
     }
     
@@ -270,7 +373,8 @@ std::unordered_map<std::string, BazelTarget> AdvancedBazelQueryParser::ParseWith
 
 void AdvancedBazelQueryParser::QueryTargetDetailsBatch(const std::vector<std::string>& target_labels,
                                                       std::unordered_map<std::string, BazelTarget>& targets) {
-    const size_t batch_size = std::min(target_labels.size(), static_cast<size_t>(std::thread::hardware_concurrency() * 4));
+    const size_t worker_count = std::max<size_t>(1, std::thread::hardware_concurrency());
+    const size_t batch_size = std::max<size_t>(1, std::min(target_labels.size(), worker_count * 4));
     std::vector<std::future<std::vector<BazelTarget>>> futures;
     
     // 分批处理目标
@@ -422,8 +526,7 @@ std::string AdvancedBazelQueryParser::ExecuteBazelCommand(const std::string& com
     std::string full_command = bazel_binary + " " + command;
     LOG_DEBUG("Executing Bazel command: " + full_command);
     
-    // 使用同步执行命令
-    return PipeCommandExecutor::execute(PipeCommandExecutor::setCommand(full_command));
+    return PipeCommandExecutor::execute(full_command);
 }
 
 std::string AdvancedBazelQueryParser::ExtractRuleType(const std::string& kind_output) {

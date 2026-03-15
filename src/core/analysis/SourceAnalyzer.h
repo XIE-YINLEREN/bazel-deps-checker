@@ -27,9 +27,8 @@ struct HeaderInfo {
 
 // 目标分析结果结构
 struct TargetAnalysis {
-    std::vector<SourceInfo> source_files;               // 源文件分析结果
-    std::vector<HeaderInfo> header_files;               // 头文件分析结果
     std::unordered_set<std::string> included_headers;   // 所有包含的头文件（递归）
+    std::unordered_set<std::string> included_header_names; // 所有包含头文件的文件名
     std::unordered_set<std::string> provided_headers;   // 目标提供的头文件
 };
 
@@ -88,14 +87,22 @@ private:
     
     // 解析头文件
     bool ParseHeaderFile(const std::string& file_path, HeaderInfo& result);
+    bool ParseIncludesFromFile(
+        const std::string& resolved_path,
+        std::unordered_set<std::string>& includes,
+        std::string& file_name);
     
     // 递归分析头文件包含关系
     void RecursivelyAnalyzeHeaderIncludes(const std::string& source_file,
                                          const std::unordered_set<std::string>& direct_includes,
                                          TargetAnalysis& analysis);
+    const std::unordered_set<std::string>& GetRecursiveHeaderIncludes(const std::string& header_name);
     
     // 查找头文件的实际路径
     std::string FindHeaderPath(const std::string& header_name);
+
+    // 解析工作区内文件的实际路径
+    std::string ResolveWorkspacePath(const std::string& file_path) const;
     
     // 从行中提取包含的头文件
     void ExtractIncludesFromLine(const std::string& line, std::unordered_set<std::string>& includes);
@@ -115,7 +122,19 @@ private:
 private:
     const std::string workspace_path_;   // 工作区路径
     const std::unordered_map<std::string, BazelTarget>& targets_;  // 目标映射引用
-    std::unordered_map<std::string, TargetAnalysis> target_analysis_;  // 分析结果缓存
-    std::unordered_set<std::string> analyzed_targets_;  // 已分析目标集合
-    mutable std::mutex analysis_mutex_;  // 分析缓存互斥锁
+    // target -> 聚合后的查询结果；不再长期保存逐文件明细对象
+    std::unordered_map<std::string, TargetAnalysis> target_analysis_;
+    std::unordered_set<std::string> analyzed_targets_;
+    // 反向索引：header basename -> provider targets
+    std::unordered_map<std::string, std::unordered_set<std::string>> provided_header_to_targets_;
+    std::unordered_map<std::string, std::string> header_path_cache_;
+    // 文件级 include 解析缓存
+    std::unordered_map<std::string, std::unordered_set<std::string>> parsed_includes_cache_;
+    // 递归头文件闭包缓存：header path -> recursive includes
+    std::unordered_map<std::string, std::unordered_set<std::string>> recursive_header_includes_cache_;
+    // target -> dependency 判定缓存
+    std::unordered_map<std::string, bool> dependency_needed_cache_;
+    // target 级可移除依赖缓存
+    std::unordered_map<std::string, std::vector<RemovableDependency>> removable_dependencies_cache_;
+    mutable std::mutex analysis_mutex_;
 };

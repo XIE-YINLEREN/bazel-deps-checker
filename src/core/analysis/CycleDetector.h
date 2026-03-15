@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <memory>
 
 #include "graph/DependencyGraph.h"
@@ -58,6 +59,9 @@ public:
     // 分析未使用依赖
     std::vector<RemovableDependency> AnalyzeUnusedDependencies();
 private:
+    // 边级缓存 key，避免在 cycle/unused 双路径里重复做同一条边分析
+    std::string BuildEdgeCacheKey(const std::string& from, const std::string& to) const;
+
     // 分类单个循环
     CycleAnalysis ClassifyCycle(const std::vector<std::string>& cycle) const;
     
@@ -108,4 +112,13 @@ private:
     const DependencyGraph& graph_;                              // 依赖图引用
     const std::unordered_map<std::string, BazelTarget>& targets_;  // 目标映射引用
     std::shared_ptr<SourceAnalyzer> source_analyzer_;           // 源代码分析器
-};
+    // 整轮分析级缓存：同一个 SDK 请求里 cycle/unused/多格式输出会复用这里的结果
+    mutable bool cycles_cached_{false};
+    mutable bool unused_cached_{false};
+    mutable std::vector<CycleAnalysis> cached_cycles_;
+    mutable std::vector<RemovableDependency> cached_unused_dependencies_;
+    // 边级别缓存：避免同一条边反复做代码级/target级判断
+    mutable std::unordered_map<std::string, std::vector<RemovableDependency>> code_level_cache_;
+    mutable std::unordered_map<std::string, std::vector<RemovableDependency>> target_level_cache_;
+    mutable std::unordered_map<std::string, bool> critical_dependency_cache_;
+}; 

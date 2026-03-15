@@ -1,10 +1,11 @@
 #include "DependencyGraph.h"
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 #include <vector>
 
-DependencyGraph::DependencyGraph(std::unordered_map<std::string, BazelTarget> targets)
-    : grap_targets_(std::move(targets)) {
+DependencyGraph::DependencyGraph(const std::unordered_map<std::string, BazelTarget>& targets)
+    : source_analyzer_(nullptr), graph_targets_(targets) {
     BuildGraph();
     BuildReverseDependencies();
 }
@@ -15,19 +16,30 @@ void DependencyGraph::SetSourceAnalyzer(SourceAnalyzer* source_analyzer) const {
 
 void DependencyGraph::BuildGraph() {
     graph_.clear();
+    adjacency_set_.clear();
+    node_names_.clear();
+    node_ids_.clear();
+    adjacency_ids_.clear();
     
-    for (const auto& [name, target] : grap_targets_) {
+    for (const auto& [name, target] : graph_targets_) {
+        const size_t from_id = GetOrCreateNodeId(name);
         std::vector<std::string> dependencies;
+        std::unordered_set<std::string> dependency_set;
         dependencies.reserve(target.deps.size());
+        dependency_set.reserve(target.deps.size());
         
         for (const auto& dep : target.deps) {
             std::string simplified_dep = SimplifyDependencyName(dep);
             if (!simplified_dep.empty() && simplified_dep.find("@") == std::string::npos) {
+                const size_t to_id = GetOrCreateNodeId(simplified_dep);
+                dependency_set.insert(simplified_dep);
                 dependencies.push_back(std::move(simplified_dep));
+                adjacency_ids_[from_id].push_back(to_id);
             }
         }
         
         graph_[name] = std::move(dependencies);
+        adjacency_set_[name] = std::move(dependency_set);
     }
 }
 
@@ -52,20 +64,76 @@ std::string DependencyGraph::SimplifyDependencyName(const std::string& dep) cons
     return result;
 }
 
+size_t DependencyGraph::GetOrCreateNodeId(const std::string& node_name) {
+    const auto it = node_ids_.find(node_name);
+    if (it != node_ids_.end()) {
+        return it->second;
+    }
+
+    const size_t new_id = node_names_.size();
+    node_names_.push_back(node_name);
+    node_ids_.emplace(node_name, new_id);
+    adjacency_ids_.emplace_back();
+    return new_id;
+}
+
+size_t DependencyGraph::GetNodeId(const std::string& node_name) const {
+    const auto it = node_ids_.find(node_name);
+    return it == node_ids_.end() ? static_cast<size_t>(-1) : it->second;
+}
+
 std::vector<std::vector<std::string>> DependencyGraph::FindCycles() const {
-    // 使用DFS检测所有循环
     std::vector<std::vector<std::string>> cycles;
-    // 0:未访问, 1:访问中, 2:已访问
     std::unordered_map<std::string, int> color;
-    // 记录父节点以便回溯
     std::unordered_map<std::string, std::string> parent;
-    
-    for (const auto& [node, _] : graph_) {
-        if (color[node] == 0) {
-            FindCyclesDFS(node, color, parent, cycles);
+    std::set<std::string> cycle_signatures;
+    color.reserve(graph_.size());
+    parent.reserve(graph_.size());
+
+    const auto components = FindStronglyConnectedComponents();
+    for (const auto& component : components) {
+        if (component.empty()) {
+            continue;
+        }
+
+        if (component.size() == 1) {
+            const auto only_node_it = component.begin();
+            auto graph_it = graph_.find(*only_node_it);
+            if (graph_it == graph_.end() ||
+                std::find(graph_it->second.begin(), graph_it->second.end(), *only_node_it) ==
+                    graph_it->second.end()) {
+                continue;
+            }
+            std::vector<std::string> self_cycle = {*only_node_it};
+            const std::string signature = CanonicalizeCycle(self_cycle);
+            if (cycle_signatures.insert(signature).second) {
+                cycles.push_back(std::move(self_cycle));
+            }
+            continue;
+        }
+
+        if (component.size() == 2) {
+            auto it = component.begin();
+            const std::string first = *it;
+            ++it;
+            const std::string second = *it;
+            if (HasDirectEdge(first, second) && HasDirectEdge(second, first)) {
+                std::vector<std::string> cycle = {first, second};
+                const std::string signature = CanonicalizeCycle(cycle);
+                if (cycle_signatures.insert(signature).second) {
+                    cycles.push_back(std::move(cycle));
+                }
+                continue;
+            }
+        }
+
+        for (const auto& node : component) {
+            if (color[node] == 0) {
+                FindCyclesDFS(node, color, parent, cycles, cycle_signatures, &component);
+            }
         }
     }
-    
+
     return cycles;
 }
 
@@ -73,76 +141,122 @@ void DependencyGraph::FindCyclesDFS(
     const std::string& node,
     std::unordered_map<std::string, int>& color,
     std::unordered_map<std::string, std::string>& parent,
-    std::vector<std::vector<std::string>>& cycles) const {
+    std::vector<std::vector<std::string>>& cycles,
+    std::set<std::string>& cycle_signatures,
+    const std::unordered_set<std::string>* allowed_nodes) const {
     
-    // 标记为访问中
     color[node] = 1; 
     
     auto it = graph_.find(node);
     if (it != graph_.end()) {
         for (const auto& neighbor : it->second) {
+            if (allowed_nodes && allowed_nodes->find(neighbor) == allowed_nodes->end()) {
+                continue;
+            }
             if (color[neighbor] == 0) {
-                // 未访问的节点
                 parent[neighbor] = node;
-                FindCyclesDFS(neighbor, color, parent, cycles);
+                FindCyclesDFS(neighbor, color, parent, cycles, cycle_signatures, allowed_nodes);
             } else if (color[neighbor] == 1) {
-                // 找到后向边，说明有循环
                 std::vector<std::string> cycle;
                 std::string current = node;
                 
-                // 回溯构建循环路径
                 while (current != neighbor) {
                     cycle.push_back(current);
                     current = parent[current];
                 }
                 cycle.push_back(neighbor);
-                // 闭合循环
                 cycle.push_back(node);
                 
                 std::reverse(cycle.begin(), cycle.end());
-                cycles.push_back(std::move(cycle));
-            }
-            // color[neighbor] == 2: 已访问完成，忽略
-        }
-    }
-    
-    // 标记为已访问完成
-    color[node] = 2; 
-}
-
-std::unordered_set<std::string> DependencyGraph::GetTransitiveDependencies(
-    const std::string& target) const {
-    std::unordered_set<std::string> transitive_deps;
-    
-    auto it = graph_.find(target);
-    if (it == graph_.end()) {
-        return transitive_deps;
-    }
-    
-    std::queue<std::string> queue;
-    for (const auto& dep : it->second) {
-        queue.push(dep);
-    }
-    
-    while (!queue.empty()) {
-        std::string current = std::move(queue.front());
-        queue.pop();
-        
-        if (!transitive_deps.insert(current).second) {
-            continue;
-        }
-        
-        auto current_it = graph_.find(current);
-        if (current_it != graph_.end()) {
-            for (const auto& dep : current_it->second) {
-                if (transitive_deps.find(dep) == transitive_deps.end()) {
-                    queue.push(dep);
+                const std::string signature = CanonicalizeCycle(cycle);
+                if (cycle_signatures.insert(signature).second) {
+                    cycles.push_back(std::move(cycle));
                 }
             }
         }
     }
     
-    return transitive_deps;
+    color[node] = 2; 
+}
+
+std::vector<std::unordered_set<std::string>> DependencyGraph::FindStronglyConnectedComponents() const {
+    std::vector<std::unordered_set<std::string>> components;
+    std::unordered_map<std::string, int> index_map;
+    std::unordered_map<std::string, int> low_link;
+    std::vector<std::string> stack;
+    std::unordered_set<std::string> on_stack;
+    int current_index = 0;
+
+    index_map.reserve(graph_.size());
+    low_link.reserve(graph_.size());
+    stack.reserve(graph_.size());
+    on_stack.reserve(graph_.size());
+
+    for (const auto& [node, _] : graph_) {
+        if (index_map.find(node) == index_map.end()) {
+            FindStronglyConnectedComponentsDFS(
+                node, current_index, index_map, low_link, stack, on_stack, components);
+        }
+    }
+
+    return components;
+}
+
+void DependencyGraph::FindStronglyConnectedComponentsDFS(
+    const std::string& node,
+    int& current_index,
+    std::unordered_map<std::string, int>& index_map,
+    std::unordered_map<std::string, int>& low_link,
+    std::vector<std::string>& stack,
+    std::unordered_set<std::string>& on_stack,
+    std::vector<std::unordered_set<std::string>>& components) const {
+    index_map[node] = current_index;
+    low_link[node] = current_index;
+    ++current_index;
+    stack.push_back(node);
+    on_stack.insert(node);
+
+    auto graph_it = graph_.find(node);
+    if (graph_it != graph_.end()) {
+        for (const auto& neighbor : graph_it->second) {
+            if (index_map.find(neighbor) == index_map.end()) {
+                FindStronglyConnectedComponentsDFS(
+                    neighbor, current_index, index_map, low_link, stack, on_stack, components);
+                low_link[node] = std::min(low_link[node], low_link[neighbor]);
+            } else if (on_stack.find(neighbor) != on_stack.end()) {
+                low_link[node] = std::min(low_link[node], index_map[neighbor]);
+            }
+        }
+    }
+
+    if (low_link[node] != index_map[node]) {
+        return;
+    }
+
+    std::unordered_set<std::string> component;
+    while (!stack.empty()) {
+        std::string current = std::move(stack.back());
+        stack.pop_back();
+        on_stack.erase(current);
+        component.insert(current);
+        if (current == node) {
+            break;
+        }
+    }
+    components.push_back(std::move(component));
+}
+
+bool DependencyGraph::HasDirectEdge(const std::string& from, const std::string& to) const {
+    auto adjacency_it = adjacency_set_.find(from);
+    if (adjacency_it == adjacency_set_.end()) {
+        return false;
+    }
+    return adjacency_it->second.find(to) != adjacency_it->second.end();
+}
+
+std::unordered_set<std::string> DependencyGraph::GetTransitiveDependencies(
+    const std::string& target) const {
+    return GetTransitiveDependenciesRef(target);
 }
 
 std::vector<std::string> DependencyGraph::FindUnusedDependencies(const std::string& target) const {
@@ -190,6 +304,12 @@ bool DependencyGraph::IsDependencyTrulyNeeded(const std::string& target,
 
 bool DependencyGraph::IsDependencyNeededByTransitiveDeps(const std::string& target,
                                                        const std::string& dependency) const {
+    const std::string cache_key = target + '\n' + dependency;
+    auto cached = dependency_need_cache_.find(cache_key);
+    if (cached != dependency_need_cache_.end()) {
+        return cached->second;
+    }
+
     // 检查目标的直接依赖是否依赖这个库
     auto target_deps_it = graph_.find(target);
     if (target_deps_it == graph_.end()) {
@@ -200,18 +320,20 @@ bool DependencyGraph::IsDependencyNeededByTransitiveDeps(const std::string& targ
         if (direct_dep == dependency) continue;
         
         // 获取直接依赖的传递依赖
-        std::unordered_set<std::string> transitive_deps = GetTransitiveDependencies(direct_dep);
+        const auto& transitive_deps = GetTransitiveDependenciesRef(direct_dep);
         if (transitive_deps.find(dependency) != transitive_deps.end()) {
             // 检查这个直接依赖是否真正需要该依赖
             if (source_analyzer_) {
                 if (source_analyzer_->IsDependencyNeeded(direct_dep, dependency)) {
                     // 直接依赖真正需要这个依赖，所以目标需要传递声明
+                    dependency_need_cache_[cache_key] = true;
                     return true;
                 }
             }
         }
     }
     
+    dependency_need_cache_[cache_key] = false;
     return false;
 }
 
@@ -300,22 +422,19 @@ std::vector<std::string> DependencyGraph::FindTransitiveRedundantDependencies(co
     }
     
     // 获取所有传递依赖
-    std::unordered_set<std::string> transitive_deps = GetTransitiveDependencies(target);
+    const auto& transitive_deps = GetTransitiveDependenciesRef(target);
+    (void)transitive_deps;
     
     // 检查每个直接依赖是否可以被省略
     for (const auto& direct_dep : it->second) {
         // 检查这个直接依赖是否已经通过其他路径成为传递依赖
-        bool is_transitive_through_other = false;
-        
         for (const auto& other_dep : it->second) {
             if (other_dep == direct_dep) continue;
             
             // 获取其他依赖的传递依赖
-            std::unordered_set<std::string> other_transitive = GetTransitiveDependencies(other_dep);
+            const auto& other_transitive = GetTransitiveDependenciesRef(other_dep);
             if (other_transitive.find(direct_dep) != other_transitive.end()) {
                 // 这个依赖已经通过其他路径传递了
-                is_transitive_through_other = true;
-                
                 // 使用源码分析器进一步确认
                 if (source_analyzer_) {
                     if (!source_analyzer_->IsDependencyNeeded(target, direct_dep) &&
@@ -333,4 +452,79 @@ std::vector<std::string> DependencyGraph::FindTransitiveRedundantDependencies(co
     }
     
     return redundant_deps;
+}
+
+const std::unordered_set<std::string>& DependencyGraph::GetTransitiveDependenciesRef(
+    const std::string& target) const {
+    auto cache_it = transitive_deps_cache_.find(target);
+    if (cache_it != transitive_deps_cache_.end()) {
+        return cache_it->second;
+    }
+
+    const size_t target_id = GetNodeId(target);
+    if (target_id == static_cast<size_t>(-1) || target_id >= adjacency_ids_.size()) {
+        return empty_dependency_set_;
+    }
+
+    std::unordered_set<std::string> transitive_deps;
+    std::queue<size_t> queue;
+    std::unordered_set<size_t> visited_ids;
+
+    for (const size_t dep_id : adjacency_ids_[target_id]) {
+        queue.push(dep_id);
+    }
+
+    while (!queue.empty()) {
+        const size_t current = queue.front();
+        queue.pop();
+
+        if (!visited_ids.insert(current).second) {
+            continue;
+        }
+
+        if (current >= node_names_.size()) {
+            continue;
+        }
+        transitive_deps.insert(node_names_[current]);
+
+        if (current >= adjacency_ids_.size()) {
+            continue;
+        }
+
+        for (const size_t dep_id : adjacency_ids_[current]) {
+            if (visited_ids.find(dep_id) == visited_ids.end()) {
+                queue.push(dep_id);
+            }
+        }
+    }
+
+    auto [inserted_it, _] = transitive_deps_cache_.emplace(target, std::move(transitive_deps));
+    return inserted_it->second;
+}
+
+std::string DependencyGraph::CanonicalizeCycle(const std::vector<std::string>& cycle) const {
+    if (cycle.empty()) {
+        return "";
+    }
+
+    std::vector<std::string> normalized = cycle;
+    if (normalized.size() > 1 && normalized.front() == normalized.back()) {
+        normalized.pop_back();
+    }
+
+    if (normalized.empty()) {
+        return "";
+    }
+
+    auto min_it = std::min_element(normalized.begin(), normalized.end());
+    std::rotate(normalized.begin(), min_it, normalized.end());
+
+    std::ostringstream os;
+    for (size_t index = 0; index < normalized.size(); ++index) {
+        if (index > 0) {
+            os << "->";
+        }
+        os << normalized[index];
+    }
+    return os.str();
 }

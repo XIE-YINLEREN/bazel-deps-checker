@@ -1,53 +1,36 @@
 #pragma once
 
-#include <cstring>
-#include <filesystem>
-#include <iostream>
-#include <cstring>
+#include <exception>
+#include <iosfwd>
+#include <string>
 
-#include "log/logger.h"
-#include "pipe.h"
 #include "struct.h"
 
+class HelpRequested : public std::exception {
+public:
+    const char* what() const noexcept override {
+        return "Help requested";
+    }
+};
 
 class CommandLineArgs {
-private:
-    CommandLineArgs() = default;
-
-    CommandLineArgs(int argc, char* argv[]);
-
-    OutputFormat ParseOutputFormat(const std::string& format_str) const;
-
-    // 解析命令行参数
-    void ParseCommandLine(int argc, char* argv[]);
-
-    // 显示使用说明
-    void PrintHelp() const;
-
 public:
-    static CommandLineArgs* GetInstance(int argc, char* argv[]);
+    static CommandLineArgs Parse(int argc, char* argv[]);
+    static void PrintHelp(std::ostream& os);
 
-    // 工作区根路径
     std::string workspace_path{};
-
-    // 输出路径
     std::string output_path{};
-
-    // 设置bazel命令位置
-    std::string bazel_binary;
-
-    // 输出格式
+    std::string bazel_binary{"bazel"};
     OutputFormat output_format{OutputFormat::CONSOLE};
-
-    // 是否启用详细日志
+    int port{8080};
     bool verbose{false};
-
-    // 是否包含测试目标
+    bool ui_mode{false};
     bool include_tests{false};
-
-    // 单例实例
-    static CommandLineArgs* CommandLineArgsHandle;
-
-    // 执行功能
     ExcuteFuction execute_function{ExcuteFuction::CYCLIC_DEPENDENCY_DETECTION};
+
+    static OutputFormat ParseOutputFormat(const std::string& format_str);
+    static std::string RequireValue(int argc, char* argv[], int& index, const std::string& option);
+
+    void SetPort(const std::string& port_str);
+    void Validate() const;
 };

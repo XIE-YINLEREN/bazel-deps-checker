@@ -23,6 +23,8 @@ public:
                            const std::string& bazel_binary = "bazel");
     
     std::unordered_map<std::string, BazelTarget> ParseWorkspace();
+    static void ClearWorkspaceCache();
+    static size_t GetWorkspaceCacheSize();
     
 private:
     // 配置相关

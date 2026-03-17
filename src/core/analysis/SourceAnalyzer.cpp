@@ -20,6 +20,15 @@ void MergeIncludes(const std::unordered_set<std::string>& includes, TargetAnalys
     }
 }
 
+bool IsLikelyHeaderInclude(const std::string& include_name) {
+    const auto extension_pos = include_name.find_last_of('.');
+    if (extension_pos == std::string::npos) {
+        return false;
+    }
+    const std::string ext = include_name.substr(extension_pos);
+    return ext == ".h" || ext == ".hh" || ext == ".hpp" || ext == ".hxx" || ext == ".inl" || ext == ".inc";
+}
+
 }  // namespace
 
 SourceAnalyzer::SourceAnalyzer(const std::unordered_map<std::string, BazelTarget>& targets, const std::string workspace_path) 
@@ -98,7 +107,7 @@ void SourceAnalyzer::RecursivelyAnalyzeHeaderIncludes([[maybe_unused]] const std
                                                     const std::unordered_set<std::string>& direct_includes,
                                                     TargetAnalysis& analysis) {
     for (const auto& header : direct_includes) {
-        if (header.find(".h") == std::string::npos && header.find(".hpp") == std::string::npos) {
+        if (!IsLikelyHeaderInclude(header)) {
             continue;
         }
         const auto& recursive_includes = GetRecursiveHeaderIncludes(header);
@@ -125,30 +134,31 @@ const std::unordered_set<std::string>& SourceAnalyzer::GetRecursiveHeaderInclude
     std::unordered_set<std::string> visited_headers;
     std::unordered_set<std::string> aggregate_includes;
     std::stack<std::string> to_analyze;
-    to_analyze.push(header_name);
+    to_analyze.push(header_path);
 
     while (!to_analyze.empty()) {
-        std::string current_header = to_analyze.top();
+        std::string current_header_path = to_analyze.top();
         to_analyze.pop();
 
-        if (!visited_headers.insert(current_header).second) {
-            continue;
-        }
-
-        const std::string current_path = FindHeaderPath(current_header);
-        if (current_path.empty()) {
+        if (!visited_headers.insert(current_header_path).second) {
             continue;
         }
 
         HeaderInfo hdr_info;
-        if (!ParseHeaderFile(current_path, hdr_info)) {
+        if (!ParseHeaderFile(current_header_path, hdr_info)) {
             continue;
         }
 
         for (const auto& include : hdr_info.includes) {
-            if (aggregate_includes.insert(include).second &&
-                (include.find(".h") != std::string::npos || include.find(".hpp") != std::string::npos)) {
-                to_analyze.push(include);
+            if (!aggregate_includes.insert(include).second) {
+                continue;
+            }
+            if (!IsLikelyHeaderInclude(include)) {
+                continue;
+            }
+            const std::string include_path = FindHeaderPath(include);
+            if (!include_path.empty()) {
+                to_analyze.push(include_path);
             }
         }
     }
@@ -160,14 +170,19 @@ const std::unordered_set<std::string>& SourceAnalyzer::GetRecursiveHeaderInclude
 }
 
 std::string SourceAnalyzer::FindHeaderPath(const std::string& header_name) {
-    std::lock_guard<std::mutex> lock(analysis_mutex_);
-    auto cache_it = header_path_cache_.find(header_name);
-    if (cache_it != header_path_cache_.end()) {
-        return cache_it->second;
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        auto cache_it = header_path_cache_.find(header_name);
+        if (cache_it != header_path_cache_.end()) {
+            return cache_it->second;
+        }
     }
 
     const std::string resolved_path = ResolveWorkspacePath(header_name);
-    header_path_cache_[header_name] = resolved_path;
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        header_path_cache_[header_name] = resolved_path;
+    }
     return resolved_path;
 }
 
@@ -176,21 +191,32 @@ std::string SourceAnalyzer::ResolveWorkspacePath(const std::string& file_path) c
         return "";
     }
 
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        const auto cache_it = resolved_path_cache_.find(file_path);
+        if (cache_it != resolved_path_cache_.end()) {
+            return cache_it->second;
+        }
+    }
+
     const fs::path input_path(file_path);
+    std::string resolved_path;
     if (input_path.is_absolute() && fs::exists(input_path)) {
-        return input_path.string();
+        resolved_path = input_path.string();
+    } else {
+        const fs::path workspace_candidate = fs::path(workspace_path_) / input_path;
+        if (fs::exists(workspace_candidate)) {
+            resolved_path = workspace_candidate.string();
+        } else if (fs::exists(input_path)) {
+            resolved_path = input_path.string();
+        }
     }
 
-    const fs::path workspace_candidate = fs::path(workspace_path_) / input_path;
-    if (fs::exists(workspace_candidate)) {
-        return workspace_candidate.string();
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        resolved_path_cache_[file_path] = resolved_path;
     }
-
-    if (fs::exists(input_path)) {
-        return input_path.string();
-    }
-
-    return "";
+    return resolved_path;
 }
 
 bool SourceAnalyzer::ParseSourceFile(const std::string& file_path, SourceInfo& result) {
@@ -211,6 +237,10 @@ bool SourceAnalyzer::ParseIncludesFromFile(
     const std::string& resolved_path,
     std::unordered_set<std::string>& includes,
     std::string& file_name) {
+    if (resolved_path.empty()) {
+        return false;
+    }
+
     {
         std::lock_guard<std::mutex> lock(analysis_mutex_);
         auto cache_it = parsed_includes_cache_.find(resolved_path);
@@ -225,7 +255,14 @@ bool SourceAnalyzer::ParseIncludesFromFile(
 
     std::ifstream file(resolved_path);
     if (!file.is_open()) {
-        LOG_WARN("Cannot open file: " + resolved_path);
+        bool should_warn = false;
+        {
+            std::lock_guard<std::mutex> lock(analysis_mutex_);
+            should_warn = warned_unreadable_files_.insert(resolved_path).second;
+        }
+        if (should_warn) {
+            LOG_WARN("Cannot open file: " + resolved_path);
+        }
         return false;
     }
 
@@ -433,16 +470,38 @@ bool SourceAnalyzer::IsHeaderFileExtension(const std::string& ext) const {
 }
 
 void SourceAnalyzer::EnsureTargetAnalyzed(const std::string& target_name) {
+    bool should_analyze = false;
     {
-        std::lock_guard<std::mutex> lock(analysis_mutex_);
-        if (analyzed_targets_.find(target_name) != analyzed_targets_.end()) {
-            // 已经分析过
+        std::unique_lock<std::mutex> lock(analysis_mutex_);
+        while (analyzed_targets_.find(target_name) == analyzed_targets_.end()) {
+            if (analyzing_targets_.insert(target_name).second) {
+                should_analyze = true;
+                break;
+            }
+            analysis_cv_.wait(lock, [&]() {
+                return analyzed_targets_.find(target_name) != analyzed_targets_.end() ||
+                       analyzing_targets_.find(target_name) == analyzing_targets_.end();
+            });
+        }
+        if (!should_analyze) {
             return;
         }
     }
-    
-    // 分析目标
-    AnalyzeTarget(target_name);
+
+    try {
+        AnalyzeTarget(target_name);
+    } catch (...) {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        analyzing_targets_.erase(target_name);
+        analysis_cv_.notify_all();
+        throw;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(analysis_mutex_);
+        analyzing_targets_.erase(target_name);
+    }
+    analysis_cv_.notify_all();
 }
 
 const std::unordered_set<std::string>& SourceAnalyzer::GetTargetIncludedHeaders(const std::string& target_name) {
@@ -505,16 +564,31 @@ void SourceAnalyzer::ClearCache() {
     std::lock_guard<std::mutex> lock(analysis_mutex_);
     target_analysis_.clear();
     analyzed_targets_.clear();
+    analyzing_targets_.clear();
     header_path_cache_.clear();
+    resolved_path_cache_.clear();
     parsed_includes_cache_.clear();
+    warned_unreadable_files_.clear();
     recursive_header_includes_cache_.clear();
     dependency_needed_cache_.clear();
     removable_dependencies_cache_.clear();
+    analysis_cv_.notify_all();
 }
 
 void SourceAnalyzer::ClearTargetCache(const std::string& target_name) {
     std::lock_guard<std::mutex> lock(analysis_mutex_);
     target_analysis_.erase(target_name);
     analyzed_targets_.erase(target_name);
+    analyzing_targets_.erase(target_name);
     removable_dependencies_cache_.erase(target_name);
+
+    const std::string target_prefix = target_name + '\n';
+    for (auto it = dependency_needed_cache_.begin(); it != dependency_needed_cache_.end();) {
+        if (it->first.rfind(target_prefix, 0) == 0) {
+            it = dependency_needed_cache_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    analysis_cv_.notify_all();
 }

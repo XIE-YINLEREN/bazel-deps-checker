@@ -58,21 +58,21 @@ std::string WebServer::BuildUiPage() {
     }
     .page {
       position: relative;
-      max-width: 1380px;
+      max-width: 1460px;
       margin: 0 auto;
-      padding: 28px 20px 56px;
+      padding: 20px 20px 48px;
     }
     .hero {
       position: relative;
       overflow: hidden;
-      padding: 32px;
+      padding: 24px 26px;
       border-radius: var(--radius-xl);
       border: 1px solid var(--border);
       background:
-        linear-gradient(135deg, rgba(120, 168, 255, 0.18), rgba(18, 26, 43, 0.96) 42%),
+        linear-gradient(135deg, rgba(120, 168, 255, 0.14), rgba(18, 26, 43, 0.96) 42%),
         rgba(18, 26, 43, 0.92);
       box-shadow: var(--shadow);
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     .hero::after {
       content: "";
@@ -88,29 +88,47 @@ std::string WebServer::BuildUiPage() {
     .hero-top {
       display: flex;
       justify-content: space-between;
-      gap: 18px;
-      align-items: flex-start;
+      gap: 16px;
+      align-items: stretch;
       flex-wrap: wrap;
     }
+    .hero-copy {
+      max-width: 780px;
+    }
+    .hero-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      margin-bottom: 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(120, 168, 255, 0.2);
+      background: rgba(120, 168, 255, 0.1);
+      color: #d9e8ff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
     .hero h1 {
-      margin: 0 0 10px;
-      font-size: clamp(30px, 4vw, 40px);
-      line-height: 1.12;
+      margin: 0 0 8px;
+      font-size: clamp(26px, 3.6vw, 36px);
+      line-height: 1.14;
       letter-spacing: -.03em;
     }
     .hero p {
       margin: 0;
-      max-width: 760px;
+      max-width: 700px;
       color: var(--text-soft);
-      line-height: 1.7;
-      font-size: 15px;
+      line-height: 1.65;
+      font-size: 14px;
     }
     .hero-badges, .hero-stats {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
     }
-    .hero-badges { margin-top: 18px; }
+    .hero-badges { margin-top: 14px; }
     .badge, .mini-chip {
       display: inline-flex;
       align-items: center;
@@ -130,11 +148,12 @@ std::string WebServer::BuildUiPage() {
     }
     .hero-stats {
       justify-content: flex-end;
-      max-width: 320px;
+      align-content: flex-start;
+      max-width: 340px;
     }
     .hero-stat {
-      min-width: 140px;
-      padding: 14px 16px;
+      min-width: 150px;
+      padding: 12px 14px;
       border-radius: 18px;
       border: 1px solid rgba(255,255,255,.08);
       background: rgba(255,255,255,.04);
@@ -147,14 +166,15 @@ std::string WebServer::BuildUiPage() {
       letter-spacing: .08em;
     }
     .hero-stat .value {
-      margin-top: 8px;
-      font-size: 22px;
+      margin-top: 6px;
+      font-size: 18px;
       font-weight: 800;
+      line-height: 1.3;
     }
     .layout {
       display: grid;
-      grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
-      gap: 20px;
+      grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
+      gap: 16px;
       align-items: start;
     }
     .panel {
@@ -172,7 +192,7 @@ std::string WebServer::BuildUiPage() {
     .results-panel {
       position: relative;
       padding: 22px;
-      min-height: 760px;
+      min-height: 720px;
     }
     .section-title {
       display: flex;
@@ -196,6 +216,34 @@ std::string WebServer::BuildUiPage() {
       display: grid;
       gap: 16px;
       margin-top: 20px;
+    }
+    .form-section {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(255,255,255,.028);
+    }
+    .form-section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .form-section-head strong {
+      display: block;
+      color: var(--text);
+      font-size: 14px;
+    }
+    .form-section-head span {
+      display: block;
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+      max-width: 420px;
     }
     .input-group {
       display: grid;
@@ -265,10 +313,10 @@ std::string WebServer::BuildUiPage() {
       align-items: center;
       justify-content: space-between;
       gap: 14px;
-      padding: 14px 16px;
+      padding: 12px 14px;
       border: 1px solid var(--border);
       border-radius: 16px;
-      background: rgba(255,255,255,.03);
+      background: rgba(255,255,255,.025);
     }
     .toggle-copy strong {
       display: block;
@@ -326,6 +374,10 @@ std::string WebServer::BuildUiPage() {
       gap: 10px;
       flex-wrap: wrap;
       margin-top: 6px;
+    }
+    .action-row.compact {
+      gap: 8px;
+      margin-top: 0;
     }
     button {
       cursor: pointer;
@@ -399,13 +451,21 @@ std::string WebServer::BuildUiPage() {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
-      margin-top: 16px;
+      margin-top: 14px;
+    }
+    .support-stack {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
     }
     .helper-card {
-      padding: 14px 16px;
+      padding: 12px 14px;
       border-radius: 16px;
       border: 1px solid var(--border);
       background: rgba(255,255,255,.03);
+    }
+    .helper-card.secondary {
+      background: rgba(255,255,255,.024);
     }
     .helper-card strong {
       display: block;
@@ -419,6 +479,228 @@ std::string WebServer::BuildUiPage() {
       font-size: 12px;
       line-height: 1.5;
     }
+    .workspace-cluster {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .workspace-cluster-label {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .workspace-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .workspace-chip {
+      padding: 9px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.04);
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .workspace-chip.favorite {
+      border-color: rgba(251,191,36,.22);
+      background: rgba(251,191,36,.08);
+      color: #ffe7a9;
+    }
+    .workspace-chip.active {
+      border-color: rgba(120,168,255,.28);
+      background: rgba(120,168,255,.14);
+      color: #edf4ff;
+    }
+    .preset-card {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(8,14,25,.26);
+    }
+    .preset-card-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .preset-card-head strong {
+      font-size: 14px;
+      color: var(--text);
+    }
+    .preset-card-head span {
+      margin-top: 4px;
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .preset-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .preset-actions button {
+      padding: 9px 12px;
+      border-radius: 12px;
+    }
+    .drawer-meta {
+      display: grid;
+      gap: 6px;
+    }
+    .drawer-action-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .drawer-action-group {
+      display: grid;
+      gap: 8px;
+    }
+    .drawer-action-group strong {
+      font-size: 13px;
+      color: var(--text);
+    }
+    .drawer-action-group span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .task-history-surface {
+      margin-top: 16px;
+    }
+    .task-history-card {
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(120, 168, 255, 0.14);
+      background:
+        linear-gradient(180deg, rgba(120, 168, 255, 0.08), rgba(255,255,255,.02) 56%),
+        rgba(255,255,255,.025);
+    }
+    .task-history-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+    .task-history-head strong {
+      font-size: 16px;
+    }
+    .task-history-head span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+      max-width: 640px;
+    }
+    .glance-strip {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .glance-pill {
+      min-width: 120px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(8,14,25,.28);
+    }
+    .glance-pill .label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .glance-pill .value {
+      display: block;
+      margin-top: 6px;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .task-section {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    .task-section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: baseline;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+    .task-section-head strong {
+      font-size: 14px;
+      color: var(--text);
+    }
+    .task-section-head span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .task-list {
+      display: grid;
+      gap: 10px;
+    }
+    .task-entry {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,.06);
+      background: rgba(8,14,25,.28);
+    }
+    .task-entry-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .task-entry-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .task-entry-title strong {
+      font-size: 15px;
+      color: var(--text);
+    }
+    .task-entry-path {
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .task-entry-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .task-entry-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .task-entry-actions button {
+      padding: 9px 12px;
+      border-radius: 12px;
+    }
+    .task-entry-actions .primary-lite-button {
+      background: linear-gradient(135deg, rgba(120,168,255,.24), rgba(79,143,255,.18));
+      border: 1px solid rgba(120,168,255,.28);
+      color: #eff5ff;
+    }
     .results-head {
       display: flex;
       justify-content: space-between;
@@ -426,6 +708,17 @@ std::string WebServer::BuildUiPage() {
       gap: 12px;
       flex-wrap: wrap;
       margin-bottom: 16px;
+    }
+    .results-toolbar-wrap {
+      display: grid;
+      gap: 10px;
+      justify-items: end;
+    }
+    .toolbar-copy {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      text-align: right;
     }
     .results-meta {
       display: flex;
@@ -456,6 +749,40 @@ std::string WebServer::BuildUiPage() {
       display: grid;
       gap: 18px;
     }
+    .insight-banner {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+    }
+    .insight-banner strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 15px;
+    }
+    .insight-banner span {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 13px;
+      max-width: 760px;
+    }
+    .insight-banner.success {
+      border-color: rgba(52,211,153,.2);
+      background: rgba(52,211,153,.08);
+    }
+    .insight-banner.warning {
+      border-color: rgba(251,191,36,.22);
+      background: rgba(251,191,36,.08);
+    }
+    .insight-banner.danger {
+      border-color: rgba(248,113,113,.22);
+      background: rgba(248,113,113,.08);
+    }
     .empty-state {
       display: grid;
       place-items: center;
@@ -476,16 +803,23 @@ std::string WebServer::BuildUiPage() {
       color: var(--muted);
       line-height: 1.7;
     }
+    .empty-state-actions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
     .metric-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
     }
     .metric-card {
-      padding: 16px 18px;
-      border-radius: 18px;
+      padding: 14px 16px;
+      border-radius: 16px;
       border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.025));
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
     }
     .metric-card .label {
       color: var(--muted);
@@ -494,30 +828,30 @@ std::string WebServer::BuildUiPage() {
       text-transform: uppercase;
     }
     .metric-card .value {
-      margin-top: 10px;
-      font-size: 28px;
+      margin-top: 8px;
+      font-size: 22px;
       font-weight: 800;
       color: var(--text);
       word-break: break-word;
     }
     .summary-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
-      gap: 16px;
-      margin-top: 18px;
+      grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr);
+      gap: 14px;
+      margin-top: 14px;
     }
     .summary-main, .summary-side {
       display: grid;
       gap: 14px;
     }
     .card {
-      border-radius: 20px;
+      border-radius: 18px;
       border: 1px solid var(--border);
-      background: rgba(255,255,255,.035);
+      background: rgba(255,255,255,.03);
       overflow: hidden;
     }
     .card-header {
-      padding: 18px 18px 0;
+      padding: 16px 16px 0;
     }
     .card-header h3 {
       margin: 0;
@@ -531,14 +865,14 @@ std::string WebServer::BuildUiPage() {
     }
     .stack {
       display: grid;
-      gap: 12px;
-      padding: 18px;
+      gap: 10px;
+      padding: 16px;
     }
     .item {
-      padding: 16px;
-      border-radius: 18px;
+      padding: 14px;
+      border-radius: 16px;
       border: 1px solid rgba(255,255,255,.06);
-      background: rgba(8,14,25,.34);
+      background: rgba(8,14,25,.3);
     }
     .item h3 {
       margin: 0 0 8px;
@@ -577,15 +911,15 @@ std::string WebServer::BuildUiPage() {
     .tag.danger { border-color: rgba(248,113,113,.24); color: #ffd8d8; }
     .list-table {
       display: grid;
-      gap: 10px;
-      padding: 18px;
+      gap: 8px;
+      padding: 16px;
     }
     .list-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
       gap: 12px;
       align-items: center;
-      padding: 14px 16px;
+      padding: 12px 14px;
       border-radius: 16px;
       border: 1px solid rgba(255,255,255,.06);
       background: rgba(8,14,25,.3);
@@ -635,24 +969,25 @@ std::string WebServer::BuildUiPage() {
       line-height: 1.6;
     }
     .drawer-backdrop {
-      position: absolute;
+      position: fixed;
       inset: 0;
       background: rgba(2, 6, 14, 0.52);
-      border-radius: inherit;
+      border-radius: 0;
       opacity: 0;
       pointer-events: none;
       transition: opacity .18s ease;
+      z-index: 30;
     }
     .drawer-backdrop.visible {
       opacity: 1;
       pointer-events: auto;
     }
     .task-drawer {
-      position: absolute;
-      top: 14px;
-      right: 14px;
-      bottom: 14px;
-      width: min(420px, calc(100% - 28px));
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      bottom: 18px;
+      width: min(440px, calc(100vw - 32px));
       border-radius: 22px;
       border: 1px solid var(--border-strong);
       background: rgba(10, 16, 28, 0.96);
@@ -664,7 +999,7 @@ std::string WebServer::BuildUiPage() {
       display: grid;
       grid-template-rows: auto 1fr;
       overflow: hidden;
-      z-index: 3;
+      z-index: 40;
     }
     .task-drawer.visible {
       transform: translateX(0);
@@ -723,6 +1058,12 @@ std::string WebServer::BuildUiPage() {
         justify-content: flex-start;
         max-width: none;
       }
+      .results-toolbar-wrap {
+        justify-items: start;
+      }
+      .toolbar-copy {
+        text-align: left;
+      }
     }
     @media (max-width: 720px) {
       .page {
@@ -750,23 +1091,24 @@ std::string WebServer::BuildUiPage() {
   <div class="page">
     <section class="hero">
       <div class="hero-top">
-        <div>
-          <h1>Bazel Deps Checker 控制台</h1>
-          <p>这是一个真正可交互的本地前端页面：在浏览器里配置 workspace、切换分析模式、触发分析，并直接查看结构化结果、HTML 预览和原始 JSON。适合日常排查循环依赖、清理未使用依赖，以及定位 build-time 热点。</p>
+        <div class="hero-copy">
+          <div class="hero-kicker">Local UI · Bazel Analyzer</div>
+          <h1>分析工作台只负责执行与查看结果</h1>
+          <p>输入 workspace 后直接分析；结果、对比、HTML 报告和原始 JSON 都集中在这里，保持页面更轻、更聚焦。</p>
           <div class="hero-badges">
             <span class="badge">Cycle / Unused / Build-time</span>
-            <span class="badge">本地运行 · 无额外前端依赖</span>
-            <span class="badge">统一 JSON / HTML 报告</span>
+            <span class="badge">单工作台聚焦体验</span>
+            <span class="badge">统一 JSON / HTML 输出</span>
           </div>
         </div>
         <div class="hero-stats">
           <div class="hero-stat">
-            <div class="label">UI Mode</div>
-            <div class="value">Ready</div>
+            <div class="label">当前定位</div>
+            <div class="value">本地分析工作台</div>
           </div>
           <div class="hero-stat">
-            <div class="label">Output</div>
-            <div class="value">Live Preview</div>
+            <div class="label">交互方式</div>
+            <div class="value">任务驱动 · 实时预览</div>
           </div>
         </div>
       </div>
@@ -782,69 +1124,86 @@ std::string WebServer::BuildUiPage() {
         </div>
 
         <form id="analysis-form" class="form-grid">
-          <div class="input-group">
-            <div class="field-label">
-              <span>Workspace 路径</span>
-              <span class="field-tip">必填</span>
+          <div class="form-section">
+            <div class="form-section-head">
+              <div>
+                <strong>基础配置</strong>
+                <span>先确定 workspace 和 Bazel 路径，保证分析能正确落到目标代码库。</span>
+              </div>
             </div>
-            <input id="workspace_path" name="workspace_path" placeholder="/path/to/workspace" autocomplete="off">
-            <div id="recent-workspaces-panel" class="field-tip"></div>
+            <div class="input-group">
+              <div class="field-label">
+                <span>Workspace 路径</span>
+                <span class="field-tip">必填</span>
+              </div>
+              <input id="workspace_path" name="workspace_path" placeholder="/path/to/workspace" autocomplete="off">
+              <div id="recent-workspaces-panel" class="field-tip"></div>
+            </div>
+
+            <div class="input-group">
+              <div class="field-label">
+                <span>Bazel 路径</span>
+                <span class="field-tip">默认 bazel</span>
+              </div>
+              <input id="bazel_binary" name="bazel_binary" value="bazel" placeholder="bazel" autocomplete="off">
+              <div id="bazel-binary-hint" class="field-tip">正在检测本机 Bazel 环境…</div>
+            </div>
           </div>
 
-          <div class="input-group">
-            <div class="field-label">
-              <span>Bazel 路径</span>
-              <span class="field-tip">默认 bazel</span>
+          <div class="form-section">
+            <div class="form-section-head">
+              <div>
+                <strong>分析策略</strong>
+                <span>选择本次分析关注点，并决定是否复用缓存、是否纳入测试目标。</span>
+              </div>
             </div>
-            <input id="bazel_binary" name="bazel_binary" value="bazel" placeholder="bazel" autocomplete="off">
-          </div>
+            <div class="input-group">
+              <div class="field-label">
+                <span>分析模式</span>
+                <span class="field-tip">切换后右侧摘要自动适配</span>
+              </div>
+              <div class="mode-grid" id="mode-grid">
+                <button class="mode-card active" type="button" data-mode="cycle">
+                  <strong>循环依赖</strong>
+                  <span>分析循环链路与修复建议</span>
+                </button>
+                <button class="mode-card" type="button" data-mode="unused">
+                  <strong>未使用依赖</strong>
+                  <span>发现可移除依赖与置信度</span>
+                </button>
+                <button class="mode-card" type="button" data-mode="build-time">
+                  <strong>构建耗时</strong>
+                  <span>查看阶段耗时与关键路径</span>
+                </button>
+              </div>
+              <select id="mode" name="mode" hidden>
+                <option value="cycle" selected>循环依赖</option>
+                <option value="unused">未使用依赖</option>
+                <option value="build-time">构建耗时</option>
+              </select>
+            </div>
 
-          <div class="input-group">
-            <div class="field-label">
-              <span>分析模式</span>
-              <span class="field-tip">切换后右侧摘要自动适配</span>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <strong>包含测试目标</strong>
+                <span>build-time 模式下仅作为附加配置保留，不改变主执行分支。</span>
+              </div>
+              <label class="switch" aria-label="包含测试目标">
+                <input id="include_tests" name="include_tests" type="checkbox">
+                <span class="switch-track"></span>
+              </label>
             </div>
-            <div class="mode-grid" id="mode-grid">
-              <button class="mode-card active" type="button" data-mode="cycle">
-                <strong>循环依赖</strong>
-                <span>分析循环链路与修复建议</span>
-              </button>
-              <button class="mode-card" type="button" data-mode="unused">
-                <strong>未使用依赖</strong>
-                <span>发现可移除依赖与置信度</span>
-              </button>
-              <button class="mode-card" type="button" data-mode="build-time">
-                <strong>构建耗时</strong>
-                <span>查看阶段耗时与关键路径</span>
-              </button>
-            </div>
-            <select id="mode" name="mode" hidden>
-              <option value="cycle" selected>循环依赖</option>
-              <option value="unused">未使用依赖</option>
-              <option value="build-time">构建耗时</option>
-            </select>
-          </div>
 
-          <div class="toggle-row">
-            <div class="toggle-copy">
-              <strong>包含测试目标</strong>
-              <span>build-time 模式下仅作为附加配置保留，不改变主执行分支。</span>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <strong>强制重新分析</strong>
+                <span>关闭时，相同 workspace / mode / bazel / tests 参数会优先复用缓存结果，响应更快。</span>
+              </div>
+              <label class="switch" aria-label="强制重新分析">
+                <input id="force_refresh" name="force_refresh" type="checkbox">
+                <span class="switch-track"></span>
+              </label>
             </div>
-            <label class="switch" aria-label="包含测试目标">
-              <input id="include_tests" name="include_tests" type="checkbox">
-              <span class="switch-track"></span>
-            </label>
-          </div>
-
-          <div class="toggle-row">
-            <div class="toggle-copy">
-              <strong>强制重新分析</strong>
-              <span>关闭时，相同 workspace / mode / bazel / tests 参数会优先复用缓存结果，响应更快。</span>
-            </div>
-            <label class="switch" aria-label="强制重新分析">
-              <input id="force_refresh" name="force_refresh" type="checkbox">
-              <span class="switch-track"></span>
-            </label>
           </div>
 
           <div class="action-row">
@@ -853,31 +1212,31 @@ std::string WebServer::BuildUiPage() {
           </div>
         </form>
 
-        <div class="helper-card" style="margin-top:16px;">
-          <strong>分析预设</strong>
-          <span>把常用的 workspace / mode / bazel / tests 组合保存下来，减少重复输入。</span>
-          <div class="action-row" style="margin-top:12px;">
-            <button id="save-preset-button" class="secondary-button" type="button">保存当前为预设</button>
-          </div>
-          <div id="preset-panel" class="stack" style="padding:12px 0 0;"></div>
-        </div>
-
         <div id="status" class="status">
           <span class="status-dot"></span>
           <span id="status-text">等待执行。</span>
         </div>
 
-        <div class="helper-grid">
+        <div class="support-stack">
           <div class="helper-card">
-            <strong>推荐顺序</strong>
-            <span>先跑循环依赖，确认结构问题；再跑未使用依赖，最后看 build-time 热点。</span>
+            <strong>分析预设</strong>
+            <span>保存常用 workspace / mode / bazel / tests 组合，减少重复输入。</span>
+            <div class="action-row" style="margin-top:12px;">
+              <button id="save-preset-button" class="secondary-button" type="button">保存当前为预设</button>
+            </div>
+            <div id="preset-panel" class="stack" style="padding:12px 0 0;"></div>
           </div>
-          <div class="helper-card">
-            <strong>结果视图</strong>
-            <span>摘要适合日常浏览；HTML 预览适合汇报；JSON 适合继续处理或导出。</span>
+          <div class="helper-grid">
+            <div id="cache-panel"></div>
+            <div class="helper-card secondary">
+              <strong>推荐顺序</strong>
+              <span>先看结构问题，再清理依赖，最后再看 build-time 热点。</span>
+            </div>
+            <div class="helper-card secondary">
+              <strong>结果视图</strong>
+              <span>摘要适合日常浏览；HTML 用于汇报；JSON 适合调试与导出。</span>
+            </div>
           </div>
-          <div id="cache-panel"></div>
-          <div id="task-history-panel"></div>
         </div>
       </section>
 
@@ -894,32 +1253,36 @@ std::string WebServer::BuildUiPage() {
               <span class="mini-chip">尚未执行分析</span>
             </div>
           </div>
-          <div class="toolbar">
-            <button id="show-summary" type="button" class="active">摘要视图</button>
-            <button id="show-compare" type="button">结果对比</button>
-            <button id="show-html" type="button">HTML 预览</button>
-            <button id="show-json" type="button">原始 JSON</button>
+          <div class="results-toolbar-wrap">
+            <div class="toolbar-copy">默认先看摘要，需要汇报时切 HTML，需要排查时切 JSON。</div>
+            <div class="toolbar">
+              <button id="show-summary" type="button" class="active">摘要</button>
+              <button id="show-compare" type="button">对比</button>
+              <button id="show-html" type="button">HTML</button>
+              <button id="show-json" type="button">JSON</button>
+            </div>
           </div>
         </div>
         <div id="results" class="results"></div>
-        <div id="task-drawer-backdrop" class="drawer-backdrop"></div>
-        <aside id="task-drawer" class="task-drawer" aria-hidden="true">
-          <div class="task-drawer-head">
-            <div>
-              <h3>任务详情</h3>
-              <p>查看任务配置、状态、性能与快捷动作。</p>
-            </div>
-            <button id="close-task-drawer-button" class="secondary-button drawer-close-button" type="button">关闭</button>
-          </div>
-          <div id="task-drawer-body" class="task-drawer-body">
-            <div class="item">
-              <strong>尚未选择任务</strong>
-              <span>点击历史任务中的“详情”查看完整信息。</span>
-            </div>
-          </div>
-        </aside>
       </section>
     </div>
+
+    <div id="task-drawer-backdrop" class="drawer-backdrop"></div>
+    <aside id="task-drawer" class="task-drawer" aria-hidden="true">
+      <div class="task-drawer-head">
+        <div>
+          <h3>任务详情</h3>
+          <p>查看任务配置、状态、性能与快捷动作。</p>
+        </div>
+        <button id="close-task-drawer-button" class="secondary-button drawer-close-button" type="button">关闭</button>
+      </div>
+      <div id="task-drawer-body" class="task-drawer-body">
+        <div class="item">
+          <strong>尚未选择任务</strong>
+          <span>点击历史任务中的“详情”查看完整信息。</span>
+        </div>
+      </div>
+    </aside>
   </div>
 
   )HTML") + std::string(R"HTML(  <script>
@@ -950,6 +1313,7 @@ std::string WebServer::BuildUiPage() {
     let recentWorkspaces = [];
     let favoriteWorkspaces = [];
     let analysisPresets = [];
+    let latestTaskHistoryById = new Map();
     let taskFilters = {
       q: '',
       mode: '',
@@ -960,19 +1324,33 @@ std::string WebServer::BuildUiPage() {
     let taskSearchDebounceTimer = null;
     let activeTaskPollAttempts = 0;
     let preferencesReady = false;
+    let environmentInfo = null;
     const workspaceInputEl = document.getElementById('workspace_path');
     const bazelInputEl = document.getElementById('bazel_binary');
+    const bazelBinaryHintEl = document.getElementById('bazel-binary-hint');
     const includeTestsEl = document.getElementById('include_tests');
     const forceRefreshEl = document.getElementById('force_refresh');
     const recentWorkspacesPanelEl = document.getElementById('recent-workspaces-panel');
     const presetPanelEl = document.getElementById('preset-panel');
     const savePresetButtonEl = document.getElementById('save-preset-button');
+    const cachePanelEl = document.getElementById('cache-panel');
+    const taskHistoryPanelEl = document.getElementById('task-history-panel');
     const taskDrawerEl = document.getElementById('task-drawer');
     const taskDrawerBodyEl = document.getElementById('task-drawer-body');
     const taskDrawerBackdropEl = document.getElementById('task-drawer-backdrop');
     const closeTaskDrawerButtonEl = document.getElementById('close-task-drawer-button');
     const preferencesStorageKey = 'bazel-deps-checker-ui-preferences-v1';
     let selectedTask = null;
+    let drawerContext = null;
+    let lastDrawerTriggerEl = null;
+    const taskResultCache = new Map();
+    const renderState = {
+      recentWorkspaceKey: '',
+      presetKey: '',
+      taskHistoryKey: '',
+      resultsMetaKey: '',
+      viewKey: ''
+    };
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -1056,31 +1434,50 @@ std::string WebServer::BuildUiPage() {
 
     function buildTaskItem(task) {
       return `
-        <div class="item" style="padding:12px;">
-          <strong>${escapeHtml(normalizeModeLabel(task.mode || 'cycle'))}</strong>
-          <span>${escapeHtml(task.workspace_path || task.message || '未记录 workspace')}</span>
-          <span class="field-tip">更新时间：${escapeHtml(formatDateTime(task.updated_at_ms))}${task.total_ms ? ` · 总耗时 ${escapeHtml(Number(task.total_ms).toFixed(2))}ms` : ''}</span>
+        <article class="task-entry">
+          <div class="task-entry-head">
+            <div class="task-entry-title">
+              <strong>${escapeHtml(normalizeModeLabel(task.mode || 'cycle'))}</strong>
+              <span class="tag ${taskStatusTone(task.status)}">${escapeHtml(task.status)}</span>
+            </div>
+            <span class="field-tip">${escapeHtml(task.task_id)}</span>
+          </div>
+          <div class="task-entry-path">${escapeHtml(task.workspace_path || task.message || '未记录 workspace')}</div>
+          <div class="task-entry-meta">更新时间：${escapeHtml(formatDateTime(task.updated_at_ms))}${task.total_ms ? ` · 总耗时 ${escapeHtml(Number(task.total_ms).toFixed(2))}ms` : ''}${task.bazel_binary ? ` · ${escapeHtml(task.bazel_binary)}` : ''}</div>
           <div class="tag-list">
-            <span class="tag">${escapeHtml(task.task_id)}</span>
-            <span class="tag ${taskStatusTone(task.status)}">${escapeHtml(task.status)}</span>
             ${task.include_tests ? '<span class="tag">tests</span>' : ''}
             ${task.cache_hit ? '<span class="tag success">cache</span>' : ''}
-            ${task.bazel_binary ? `<span class="tag">${escapeHtml(task.bazel_binary)}</span>` : ''}
           </div>
-          <div class="action-row" style="margin-top:10px;">
-            <button class="secondary-button task-detail-button" type="button" data-task-id="${escapeHtml(task.task_id)}">详情</button>
-            <button class="secondary-button task-rerun-button" type="button" data-task-id="${escapeHtml(task.task_id)}">重新运行</button>
-            <button class="secondary-button task-apply-button" type="button" data-task-id="${escapeHtml(task.task_id)}">载入配置</button>
+          <div class="task-entry-actions">
+            <button class="primary-lite-button task-detail-button" type="button" data-task-id="${escapeHtml(task.task_id)}">详情</button>
             <button class="secondary-button task-open-button" type="button" data-task-id="${escapeHtml(task.task_id)}" ${task.status === 'completed' ? '' : 'disabled'}>打开结果</button>
+            <button class="secondary-button task-rerun-button" type="button" data-task-id="${escapeHtml(task.task_id)}">重跑</button>
+            <button class="secondary-button task-apply-button" type="button" data-task-id="${escapeHtml(task.task_id)}">载入配置</button>
           </div>
-        </div>`;
+        </article>`;
+    }
+
+    function getTaskById(taskId) {
+      if (!taskId) {
+        return null;
+      }
+      return latestTaskHistoryById.get(taskId) || latestTaskHistory.find((item) => item.task_id === taskId) || null;
+    }
+
+    function invalidateViewRenderCache() {
+      renderState.viewKey = '';
+      renderState.resultsMetaKey = '';
     }
 
     function closeTaskDrawer() {
       selectedTask = null;
+      drawerContext = null;
       taskDrawerEl.classList.remove('visible');
       taskDrawerBackdropEl.classList.remove('visible');
       taskDrawerEl.setAttribute('aria-hidden', 'true');
+      if (lastDrawerTriggerEl && typeof lastDrawerTriggerEl.focus === 'function') {
+        lastDrawerTriggerEl.focus();
+      }
     }
 
     async function openTaskDrawer(taskId) {
@@ -1093,6 +1490,7 @@ std::string WebServer::BuildUiPage() {
       taskDrawerEl.classList.add('visible');
       taskDrawerBackdropEl.classList.add('visible');
       taskDrawerEl.setAttribute('aria-hidden', 'false');
+      window.setTimeout(() => closeTaskDrawerButtonEl?.focus(), 0);
       taskDrawerBodyEl.innerHTML = `
         <div class="item">
           <strong>正在加载任务详情…</strong>
@@ -1115,11 +1513,14 @@ std::string WebServer::BuildUiPage() {
 
       const summaryHtml = renderTaskDrawerSummary(resultPayload);
       const trendHtml = renderTaskDrawerTrend(resultPayload, baselineTask, baselinePayload);
+      drawerContext = { task, resultPayload, baselineTask };
 
       taskDrawerBodyEl.innerHTML = `
         <div class="item">
-          <strong>${escapeHtml(normalizeModeLabel(task.mode || 'cycle'))}</strong>
-          <span>${escapeHtml(task.workspace_path || '未记录 workspace')}</span>
+          <div class="drawer-meta">
+            <strong>${escapeHtml(normalizeModeLabel(task.mode || 'cycle'))}</strong>
+            <span>${escapeHtml(task.workspace_path || '未记录 workspace')}</span>
+          </div>
           <div class="tag-list">
             <span class="tag">${escapeHtml(task.task_id)}</span>
             <span class="tag ${taskStatusTone(task.status)}">${escapeHtml(task.status)}</span>
@@ -1138,58 +1539,29 @@ std::string WebServer::BuildUiPage() {
         ${trendHtml}
         <div class="item">
           <strong>快捷动作</strong>
-          <span>从这里可以直接复用配置、重新执行，或跳到主结果区查看详情与对比。</span>
-          <div class="action-row" style="margin-top:12px;">
-            <button class="secondary-button drawer-apply-button" type="button">载入配置</button>
-            <button class="secondary-button drawer-rerun-button" type="button">重新运行</button>
-            <button class="secondary-button drawer-open-button" type="button" ${task.status === 'completed' ? '' : 'disabled'}>打开结果</button>
-            <button class="secondary-button drawer-compare-button" type="button" ${task.status === 'completed' ? '' : 'disabled'}>查看对比</button>
-            <button class="secondary-button drawer-copy-button" type="button">复制摘要</button>
-            <button class="secondary-button drawer-export-json-button" type="button">导出快照 JSON</button>
-            <button class="secondary-button drawer-export-md-button" type="button">导出快照 Markdown</button>
+          <span>主动作放前面，导出动作放后面，减少视觉干扰。</span>
+          <div class="drawer-action-grid">
+            <div class="drawer-action-group">
+              <strong>继续分析</strong>
+              <span>复用任务配置、重新执行，或把结果切到主视图继续浏览。</span>
+              <div class="action-row compact">
+                <button class="secondary-button drawer-apply-button" type="button">载入配置</button>
+                <button class="secondary-button drawer-rerun-button" type="button">重新运行</button>
+                <button class="secondary-button drawer-open-button" type="button" ${task.status === 'completed' ? '' : 'disabled'}>打开结果</button>
+                <button class="secondary-button drawer-compare-button" type="button" ${task.status === 'completed' ? '' : 'disabled'}>查看对比</button>
+              </div>
+            </div>
+            <div class="drawer-action-group">
+              <strong>分享与导出</strong>
+              <span>复制摘要，或把当前任务导出为 JSON / Markdown 快照。</span>
+              <div class="action-row compact">
+                <button class="secondary-button drawer-copy-button" type="button">复制摘要</button>
+                <button class="secondary-button drawer-export-json-button" type="button">导出 JSON</button>
+                <button class="secondary-button drawer-export-md-button" type="button">导出 Markdown</button>
+              </div>
+            </div>
           </div>
         </div>`;
-
-      taskDrawerBodyEl.querySelector('.drawer-apply-button').addEventListener('click', () => {
-        applyTaskToForm(task);
-        setStatus(`已从任务详情载入配置：${task.task_id}`, 'success');
-      });
-      taskDrawerBodyEl.querySelector('.drawer-rerun-button').addEventListener('click', () => {
-        rerunTask(task);
-      });
-      taskDrawerBodyEl.querySelector('.drawer-open-button')?.addEventListener('click', () => {
-        openTaskResult(task.task_id);
-      });
-      taskDrawerBodyEl.querySelector('.drawer-compare-button')?.addEventListener('click', async () => {
-        await openTaskResult(task.task_id);
-        currentView = 'compare';
-        refreshView();
-      });
-      taskDrawerBodyEl.querySelector('.drawer-copy-button').addEventListener('click', async () => {
-        try {
-          const markdown = buildTaskSnapshotMarkdown(task, resultPayload, baselineTask);
-          await copyTextToClipboard(markdown);
-          setStatus(`已复制任务摘要：${task.task_id}`, 'success');
-        } catch (error) {
-          setStatus(error && error.message ? error.message : '复制任务摘要失败', 'error');
-        }
-      });
-      taskDrawerBodyEl.querySelector('.drawer-export-json-button').addEventListener('click', () => {
-        const snapshot = buildTaskSnapshot(task, resultPayload, baselineTask);
-        downloadTextFile(
-          `${normalizeWorkspaceName(task.workspace_path)}-${task.task_id}-snapshot.json`,
-          JSON.stringify(snapshot, null, 2),
-          'application/json;charset=utf-8');
-        setStatus(`已导出任务快照 JSON：${task.task_id}`, 'success');
-      });
-      taskDrawerBodyEl.querySelector('.drawer-export-md-button').addEventListener('click', () => {
-        const markdown = buildTaskSnapshotMarkdown(task, resultPayload, baselineTask);
-        downloadTextFile(
-          `${normalizeWorkspaceName(task.workspace_path)}-${task.task_id}-snapshot.md`,
-          markdown,
-          'text/markdown;charset=utf-8');
-        setStatus(`已导出任务快照 Markdown：${task.task_id}`, 'success');
-      });
     }
 
     function renderTaskDrawerTrend(currentPayload, baselineTask, baselinePayload) {
@@ -1359,11 +1731,15 @@ std::string WebServer::BuildUiPage() {
     }
 
     async function fetchTaskResultPayload(taskId) {
+      if (taskResultCache.has(taskId)) {
+        return taskResultCache.get(taskId);
+      }
       const response = await fetch(`/api/tasks/${encodeURIComponent(taskId)}?include_result=1`);
       const data = await response.json();
       if (!response.ok || !data.ok || !data.result) {
         throw new Error(data.error || data.message || '读取任务结果失败');
       }
+      taskResultCache.set(taskId, data.result);
       return data.result;
     }
 
@@ -1492,12 +1868,19 @@ std::string WebServer::BuildUiPage() {
       if (!presetPanelEl) {
         return;
       }
+      const presetKey = analysisPresets
+        .map((preset) => `${preset.id}|${preset.name}|${preset.workspace_path}|${preset.mode}|${preset.last_used_ms}|${preset.include_tests ? 1 : 0}|${preset.force_refresh ? 1 : 0}`)
+        .join('~');
+      if (renderState.presetKey === presetKey) {
+        return;
+      }
       if (!analysisPresets.length) {
         presetPanelEl.innerHTML = `
           <div class="item" style="padding:12px;">
             <strong>暂无预设</strong>
             <span>先配置好参数，再点击“保存当前为预设”。</span>
           </div>`;
+        renderState.presetKey = presetKey;
         return;
       }
 
@@ -1511,9 +1894,13 @@ std::string WebServer::BuildUiPage() {
       });
 
       presetPanelEl.innerHTML = orderedPresets.map((preset) => `
-        <div class="item" style="padding:12px;">
-          <strong>${escapeHtml(preset.name)}</strong>
-          <span>${escapeHtml(preset.workspace_path)}</span>
+        <div class="preset-card">
+          <div class="preset-card-head">
+            <div>
+              <strong>${escapeHtml(preset.name)}</strong>
+              <span>${escapeHtml(preset.workspace_path)}</span>
+            </div>
+          </div>
           <div class="tag-list">
             <span class="tag">${escapeHtml(normalizeModeLabel(preset.mode))}</span>
             <span class="tag">${escapeHtml(preset.bazel_binary || 'bazel')}</span>
@@ -1521,44 +1908,13 @@ std::string WebServer::BuildUiPage() {
             ${preset.force_refresh ? '<span class="tag warning">force</span>' : ''}
             ${preset.last_used_ms ? `<span class="tag">最近使用：${escapeHtml(formatDateTime(preset.last_used_ms))}</span>` : '<span class="tag">未使用</span>'}
           </div>
-          <div class="action-row" style="margin-top:10px;">
+          <div class="preset-actions">
             <button class="secondary-button preset-run-button" type="button" data-preset-id="${escapeHtml(preset.id)}">一键运行</button>
             <button class="secondary-button preset-apply-button" type="button" data-preset-id="${escapeHtml(preset.id)}">载入预设</button>
             <button class="secondary-button preset-delete-button" type="button" data-preset-id="${escapeHtml(preset.id)}">删除</button>
           </div>
         </div>`).join('');
-
-      presetPanelEl.querySelectorAll('.preset-apply-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          const preset = analysisPresets.find((item) => item.id === button.dataset.presetId);
-          if (!preset) {
-            return;
-          }
-          applyTaskToForm(preset);
-          forceRefreshEl.checked = Boolean(preset.force_refresh);
-          savePreferences();
-          renderPresetPanel();
-          setStatus(`已载入预设：${preset.name}`, 'success');
-        });
-      });
-      presetPanelEl.querySelectorAll('.preset-run-button').forEach((button) => {
-        button.addEventListener('click', async () => {
-          const preset = analysisPresets.find((item) => item.id === button.dataset.presetId);
-          if (!preset) {
-            return;
-          }
-          await runPreset(preset);
-        });
-      });
-      presetPanelEl.querySelectorAll('.preset-delete-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          const preset = analysisPresets.find((item) => item.id === button.dataset.presetId);
-          analysisPresets = analysisPresets.filter((item) => item.id !== button.dataset.presetId);
-          savePreferences();
-          renderPresetPanel();
-          setStatus(`已删除预设：${preset ? preset.name : button.dataset.presetId}`, 'success');
-        });
-      });
+      renderState.presetKey = presetKey;
     }
 
     function saveCurrentAsPreset() {
@@ -1634,14 +1990,20 @@ std::string WebServer::BuildUiPage() {
       if (!recentWorkspacesPanelEl) {
         return;
       }
+      const recentWorkspaceKey = [
+        workspaceInputEl.value.trim(),
+        favoriteWorkspaces.join('|'),
+        recentWorkspaces.join('|')
+      ].join('||');
+      if (renderState.recentWorkspaceKey === recentWorkspaceKey) {
+        return;
+      }
       if (!recentWorkspaces.length && !favoriteWorkspaces.length) {
         recentWorkspacesPanelEl.innerHTML = `
           <div class="action-row" style="margin-top:8px;">
             <button class="secondary-button favorite-current-workspace-button" type="button">收藏当前工作区</button>
           </div>`;
-        recentWorkspacesPanelEl.querySelector('.favorite-current-workspace-button').addEventListener('click', () => {
-          toggleFavoriteWorkspace(workspaceInputEl.value);
-        });
+        renderState.recentWorkspaceKey = recentWorkspaceKey;
         return;
       }
       recentWorkspacesPanelEl.innerHTML = `
@@ -1650,39 +2012,25 @@ std::string WebServer::BuildUiPage() {
             <button class="secondary-button favorite-current-workspace-button" type="button">${isFavoriteWorkspace(workspaceInputEl.value) ? '取消收藏当前工作区' : '收藏当前工作区'}</button>
           </div>
           ${favoriteWorkspaces.length ? `
-            <div class="tag-list" style="margin-top:8px;">
-              <span class="field-tip" style="width:100%;">收藏工作区：</span>
+            <div class="workspace-cluster">
+              <span class="workspace-cluster-label">收藏工作区</span>
+              <div class="workspace-chip-row">
               ${favoriteWorkspaces.map((workspace) => `
-                <button class="secondary-button favorite-workspace-button" type="button" data-workspace="${escapeHtml(workspace)}" title="${escapeHtml(workspace)}">★ ${escapeHtml(workspace.split('/').filter(Boolean).pop() || workspace)}</button>
+                <button class="secondary-button workspace-chip favorite ${workspace === workspaceInputEl.value.trim() ? 'active' : ''}" type="button" data-workspace="${escapeHtml(workspace)}" title="${escapeHtml(workspace)}">★ ${escapeHtml(workspace.split('/').filter(Boolean).pop() || workspace)}</button>
               `).join('')}
+              </div>
             </div>` : ''}
           ${recentWorkspaces.length ? `
-            <div class="tag-list" style="margin-top:8px;">
-              <span class="field-tip" style="width:100%;">最近工作区：</span>
+            <div class="workspace-cluster">
+              <span class="workspace-cluster-label">最近工作区</span>
+              <div class="workspace-chip-row">
               ${recentWorkspaces.map((workspace) => `
-                <button class="secondary-button recent-workspace-button" type="button" data-workspace="${escapeHtml(workspace)}" title="${escapeHtml(workspace)}">${escapeHtml(workspace.split('/').filter(Boolean).pop() || workspace)}</button>
+                <button class="secondary-button workspace-chip ${workspace === workspaceInputEl.value.trim() ? 'active' : ''}" type="button" data-workspace="${escapeHtml(workspace)}" title="${escapeHtml(workspace)}">${escapeHtml(workspace.split('/').filter(Boolean).pop() || workspace)}</button>
               `).join('')}
+              </div>
             </div>` : ''}
         </div>`;
-      recentWorkspacesPanelEl.querySelector('.favorite-current-workspace-button').addEventListener('click', () => {
-        toggleFavoriteWorkspace(workspaceInputEl.value);
-      });
-      recentWorkspacesPanelEl.querySelectorAll('.favorite-workspace-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          workspaceInputEl.value = button.dataset.workspace || '';
-          savePreferences();
-          renderRecentWorkspaces();
-          setStatus(`已选中收藏工作区：${workspaceInputEl.value}`, 'success');
-        });
-      });
-      recentWorkspacesPanelEl.querySelectorAll('.recent-workspace-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          workspaceInputEl.value = button.dataset.workspace || '';
-          savePreferences();
-          renderRecentWorkspaces();
-          setStatus(`已选中最近工作区：${workspaceInputEl.value}`, 'success');
-        });
-      });
+      renderState.recentWorkspaceKey = recentWorkspaceKey;
     }
 
     function applyTaskToForm(task) {
@@ -1773,7 +2121,9 @@ std::string WebServer::BuildUiPage() {
         latestTaskHistory = resetOffset || taskFilters.offset === 0
           ? tasks
           : latestTaskHistory.concat(tasks);
+        latestTaskHistoryById = new Map(latestTaskHistory.map((task) => [task.task_id, task]));
         latestTaskHistoryTotal = Number(data.total || 0);
+        renderState.taskHistoryKey = '';
         renderTaskHistoryPanel();
       } catch (error) {
       }
@@ -1791,6 +2141,7 @@ std::string WebServer::BuildUiPage() {
         }
         latestPayload = data.result;
         latestPayloadTaskId = data.task_id || taskId;
+        invalidateViewRenderCache();
         currentView = 'summary';
         setStatus(`已打开任务 ${taskId} · ${normalizeModeLabel(data.mode || data.result.mode)}`, 'success');
         refreshView();
@@ -1809,7 +2160,7 @@ std::string WebServer::BuildUiPage() {
     }
 
     function renderCachePanel() {
-      const panel = document.getElementById('cache-panel');
+      const panel = cachePanelEl;
       if (!panel) {
         return;
       }
@@ -1832,42 +2183,42 @@ std::string WebServer::BuildUiPage() {
             <button id="clear-cache-button" class="secondary-button" type="button">清空全部缓存</button>
           </div>
         </div>`;
-
-      document.getElementById('refresh-cache-button').addEventListener('click', () => {
-        refreshCacheStatus();
-      });
-
-      document.getElementById('clear-cache-button').addEventListener('click', async () => {
-        try {
-          const response = await fetch('/api/cache/clear', { method: 'POST' });
-          const data = await response.json();
-          if (!response.ok || !data.ok) {
-            throw new Error(data.error || '清空缓存失败');
-          }
-          setStatus('缓存已清空。', 'success');
-          latestPayload = null;
-          refreshView();
-          await refreshCacheStatus();
-          await refreshTaskHistory();
-        } catch (error) {
-          const message = error && error.message ? error.message : String(error);
-          setStatus(message, 'error');
-        }
-      });
     }
 
     )HTML") + std::string(R"HTML(    function renderTaskHistoryPanel() {
-      const panel = document.getElementById('task-history-panel');
+      const panel = taskHistoryPanelEl;
       if (!panel) {
+        return;
+      }
+      const taskHistoryKey = [
+        taskFilters.q,
+        taskFilters.mode,
+        taskFilters.status,
+        taskFilters.offset,
+        latestTaskHistoryTotal,
+        latestTaskHistory.map((task) => `${task.task_id}:${task.status}:${task.updated_at_ms}`).join('|')
+      ].join('||');
+      if (renderState.taskHistoryKey === taskHistoryKey) {
         return;
       }
 
       if (!latestTaskHistory.length) {
         panel.innerHTML = `
-          <div class="helper-card">
-            <strong>最近任务</strong>
-            <span>暂无任务记录。</span>
+          <div class="task-history-card">
+            <div class="task-history-head">
+              <div>
+                <strong>最近任务</strong>
+                <span>这里会保留最近分析记录，方便快速复用配置、查看结果和追踪趋势。</span>
+              </div>
+            </div>
+            <div class="empty-state" style="min-height:220px;margin-top:14px;">
+              <div>
+                <h3>还没有任务记录</h3>
+                <p>先在上方填入 workspace 并运行一次分析，后续结果会自动沉淀到这里。</p>
+              </div>
+            </div>
           </div>`;
+        renderState.taskHistoryKey = taskHistoryKey;
         return;
       }
 
@@ -1877,16 +2228,21 @@ std::string WebServer::BuildUiPage() {
       const recentCompletedTasks = prioritizedTasks.filter((task) => task.status === 'completed');
 
       panel.innerHTML = `
-        <div class="helper-card">
-          <strong>最近任务</strong>
-          <span>支持按关键字、模式、状态筛选，并可跨重启保留最近任务结果。</span>
-          <div class="metric-grid" style="margin-top:12px;">
-            ${renderMetric('当前列表', summary.total)}
-            ${renderMetric('运行/排队', summary.running)}
-            ${renderMetric('失败任务', summary.failed)}
-            ${renderMetric('缓存命中', `${summary.total ? Math.round((summary.cacheHit / summary.total) * 100) : 0}%`)}
+        <div class="task-history-card">
+          <div class="task-history-head">
+            <div>
+              <strong>最近任务</strong>
+              <span>优先关注运行中和失败任务；已完成结果可以直接复用配置、打开结果或作为趋势基线。</span>
+            </div>
+            <span class="field-tip">已显示 ${escapeHtml(latestTaskHistory.length)} / ${escapeHtml(latestTaskHistoryTotal)} 条</span>
           </div>
-          <div class="tag-list" style="margin-top:12px;">
+          <div class="glance-strip">
+            <div class="glance-pill"><span class="label">当前列表</span><span class="value">${escapeHtml(summary.total)}</span></div>
+            <div class="glance-pill"><span class="label">运行 / 排队</span><span class="value">${escapeHtml(summary.running)}</span></div>
+            <div class="glance-pill"><span class="label">失败任务</span><span class="value">${escapeHtml(summary.failed)}</span></div>
+            <div class="glance-pill"><span class="label">缓存命中</span><span class="value">${escapeHtml(summary.total ? Math.round((summary.cacheHit / summary.total) * 100) : 0)}%</span></div>
+          </div>
+          <div class="tag-list" style="margin-top:14px;">
             <span class="tag ${taskFilters.status === '' ? 'success' : ''} task-filter-shortcut" data-status="">全部</span>
             <span class="tag ${taskFilters.status === 'running' ? 'warning' : ''} task-filter-shortcut" data-status="running">仅运行中</span>
             <span class="tag ${taskFilters.status === 'failed' ? 'danger' : ''} task-filter-shortcut" data-status="failed">仅失败</span>
@@ -1926,26 +2282,29 @@ std::string WebServer::BuildUiPage() {
               </div>
             </div>
           </div>
-          <div class="stack" style="padding:12px 0 0;">
+          <div class="task-section">
             ${activeTasks.length ? `
-              <div class="item">
-                <h3>优先关注</h3>
-                <p>先处理运行中、排队中和失败任务，缩短反馈回路。</p>
-                <div class="stack" style="padding:12px 0 0;">
+              <div>
+                <div class="task-section-head">
+                  <strong>优先关注</strong>
+                  <span>先处理运行中、排队中和失败任务，缩短反馈回路。</span>
+                </div>
+                <div class="task-list">
                   ${activeTasks.map((task) => buildTaskItem(task)).join('')}
                 </div>
               </div>` : ''}
             ${recentCompletedTasks.length ? `
-              <div class="item">
-                <h3>最近完成</h3>
-                <p>${summary.slowest ? `当前列表最慢任务：${escapeHtml(normalizeWorkspaceName(summary.slowest.workspace_path))} · ${escapeHtml(Number(summary.slowest.total_ms || 0).toFixed(2))}ms` : '可直接复用或重跑成功任务配置。'}</p>
-                <div class="stack" style="padding:12px 0 0;">
+              <div class="${activeTasks.length ? 'task-section' : ''}" style="${activeTasks.length ? '' : 'margin-top:0;padding-top:0;border-top:0;'}">
+                <div class="task-section-head">
+                  <strong>最近完成</strong>
+                  <span>${summary.slowest ? `当前列表最慢任务：${escapeHtml(normalizeWorkspaceName(summary.slowest.workspace_path))} · ${escapeHtml(Number(summary.slowest.total_ms || 0).toFixed(2))}ms` : '可直接复用或重跑成功任务配置。'}</span>
+                </div>
+                <div class="task-list">
                   ${recentCompletedTasks.map((task) => buildTaskItem(task)).join('')}
                 </div>
               </div>` : ''}
           </div>
           <div class="action-row" style="margin-top:12px;">
-            <span class="field-tip">已显示 ${escapeHtml(latestTaskHistory.length)} / ${escapeHtml(latestTaskHistoryTotal)} 条</span>
             <button id="task-load-more-button" class="secondary-button" type="button" ${latestTaskHistory.length < latestTaskHistoryTotal ? '' : 'disabled'}>加载更多</button>
           </div>
         </div>`;
@@ -1955,77 +2314,26 @@ std::string WebServer::BuildUiPage() {
       const statusFilter = document.getElementById('task-status-filter');
       if (searchInput) {
         searchInput.value = taskFilters.q;
-        searchInput.addEventListener('input', (event) => {
-          taskFilters.q = event.target.value.trim();
-          if (taskSearchDebounceTimer) {
-            clearTimeout(taskSearchDebounceTimer);
-          }
-          taskSearchDebounceTimer = setTimeout(() => {
-            refreshTaskHistory(true);
-          }, 220);
-        });
       }
       if (modeFilter) {
         modeFilter.value = taskFilters.mode;
-        modeFilter.addEventListener('change', (event) => {
-          taskFilters.mode = event.target.value;
-          refreshTaskHistory(true);
-        });
       }
       if (statusFilter) {
         statusFilter.value = taskFilters.status;
-        statusFilter.addEventListener('change', (event) => {
-          taskFilters.status = event.target.value;
-          refreshTaskHistory(true);
-        });
       }
-      panel.querySelectorAll('.task-filter-shortcut').forEach((button) => {
-        button.addEventListener('click', () => {
-          taskFilters.status = button.dataset.status || '';
-          refreshTaskHistory(true);
-        });
-      });
-
-      panel.querySelectorAll('.task-open-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          openTaskResult(button.dataset.taskId);
-        });
-      });
-      panel.querySelectorAll('.task-detail-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          openTaskDrawer(button.dataset.taskId);
-        });
-      });
-      panel.querySelectorAll('.task-apply-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          const task = latestTaskHistory.find((item) => item.task_id === button.dataset.taskId);
-          applyTaskToForm(task);
-          setStatus(`已载入任务 ${button.dataset.taskId} 的配置。`, 'success');
-        });
-      });
-      panel.querySelectorAll('.task-rerun-button').forEach((button) => {
-        button.addEventListener('click', () => {
-          const task = latestTaskHistory.find((item) => item.task_id === button.dataset.taskId);
-          if (!task) {
-            setStatus('未找到任务配置，无法重新运行。', 'error');
-            return;
-          }
-          rerunTask(task);
-        });
-      });
-
-      const loadMoreButton = document.getElementById('task-load-more-button');
-      if (loadMoreButton) {
-        loadMoreButton.addEventListener('click', () => {
-          taskFilters.offset += taskFilters.limit;
-          refreshTaskHistory();
-        });
-      }
+      renderState.taskHistoryKey = taskHistoryKey;
     }
 
     function updateResultsMeta(payload) {
+      const metaKey = payload && payload.ok
+        ? `${payload.mode}|${payload.workspace_path}|${payload.include_tests ? 1 : 0}|${payload.cache_hit ? 1 : 0}`
+        : 'empty';
+      if (renderState.resultsMetaKey === metaKey) {
+        return;
+      }
       if (!payload || !payload.ok) {
         resultsMetaEl.innerHTML = '<span class="mini-chip">尚未执行成功分析</span>';
+        renderState.resultsMetaKey = metaKey;
         return;
       }
 
@@ -2036,10 +2344,65 @@ std::string WebServer::BuildUiPage() {
         payload.cache_hit ? '结果来自缓存' : '结果为实时分析'
       ];
       resultsMetaEl.innerHTML = chips.map((item) => `<span class="mini-chip">${escapeHtml(item)}</span>`).join('');
+      renderState.resultsMetaKey = metaKey;
     }
 
     function renderMetric(label, value) {
       return `<div class="metric-card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(value)}</div></div>`;
+    }
+
+    function renderBazelEnvironmentHint() {
+      if (!bazelBinaryHintEl) {
+        return;
+      }
+      if (!environmentInfo) {
+        bazelBinaryHintEl.textContent = '正在检测本机 Bazel 环境…';
+        return;
+      }
+      if (environmentInfo.bazel_available) {
+        const detected = Array.isArray(environmentInfo.detected_bazel_binaries)
+          ? environmentInfo.detected_bazel_binaries
+          : [];
+        const recommended = environmentInfo.recommended_bazel_binary || '';
+        bazelBinaryHintEl.textContent = recommended
+          ? `已检测到 Bazel：${recommended}${detected.length > 1 ? `（另有 ${detected.length - 1} 个候选）` : ''}`
+          : '已检测到可用 Bazel 环境。';
+        return;
+      }
+      bazelBinaryHintEl.textContent = '未检测到可用 Bazel；请安装 bazel / bazelisk，或在此填写 Bazel 可执行文件绝对路径。';
+    }
+
+    async function refreshEnvironmentInfo() {
+      try {
+        const response = await fetch('/api/environment');
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          return;
+        }
+        environmentInfo = data;
+        if (data.recommended_bazel_binary &&
+            (!bazelInputEl.value.trim() || bazelInputEl.value.trim() === 'bazel')) {
+          bazelInputEl.value = data.recommended_bazel_binary;
+        }
+        renderBazelEnvironmentHint();
+      } catch (error) {
+        environmentInfo = {
+          bazel_available: false,
+          detected_bazel_binaries: [],
+          recommended_bazel_binary: ''
+        };
+        renderBazelEnvironmentHint();
+      }
+    }
+
+    function renderInsightBanner(title, description, tone = '') {
+      return `
+        <div class="insight-banner ${escapeHtml(tone)}">
+          <div>
+            <strong>${escapeHtml(title)}</strong>
+            <span>${escapeHtml(description)}</span>
+          </div>
+        </div>`;
     }
 
     function downloadTextFile(filename, content, mimeType) {
@@ -2157,11 +2520,17 @@ std::string WebServer::BuildUiPage() {
     }
 
     function renderEmptyState(title, description) {
+      const latestCompletedTask = sortTasksForDisplay(latestTaskHistory).find((task) => task.status === 'completed');
+      const canRun = Boolean(workspaceInputEl.value.trim());
       resultsEl.innerHTML = `
         <div class="empty-state">
           <div>
             <h3>${escapeHtml(title)}</h3>
             <p>${escapeHtml(description)}</p>
+            <div class="empty-state-actions">
+              <button class="secondary-button empty-run-button" type="button" ${canRun ? '' : 'disabled'}>运行当前模式</button>
+              <button class="secondary-button empty-open-latest-button" type="button" ${latestCompletedTask ? '' : 'disabled'}>打开最近结果</button>
+            </div>
           </div>
         </div>`;
     }
@@ -2169,12 +2538,16 @@ std::string WebServer::BuildUiPage() {
     function renderCycleSummary(payload) {
       const report = payload.report.report || {};
       const cycles = report.cycles || [];
+      const totalCycles = Number(report.total_cycles || 0);
       const metricHtml = `
         <div class="metric-grid">
           ${renderMetric('模式', '循环依赖')}
           ${renderMetric('循环数量', report.total_cycles ?? 0)}
           ${renderMetric('Workspace', payload.workspace_path || '-')}
         </div>`;
+      const insightHtml = totalCycles > 0
+        ? renderInsightBanner('先从短环开始拆', `本次共发现 ${totalCycles} 条循环依赖，优先处理节点少、可直接移除依赖的环，治理收益最高。`, totalCycles > 3 ? 'danger' : 'warning')
+        : renderInsightBanner('当前结构健康', '这次没有发现循环依赖，可以把注意力切到未使用依赖或 build-time 热点。', 'success');
 
       const overviewCard = `
         <div class="card">
@@ -2230,6 +2603,7 @@ std::string WebServer::BuildUiPage() {
         </div>`;
 
       resultsEl.innerHTML = `
+        ${insightHtml}
         ${metricHtml}
         <div class="summary-grid">
           <div class="summary-main">${cyclesCard}</div>
@@ -2241,6 +2615,7 @@ std::string WebServer::BuildUiPage() {
       const report = payload.report.unused_dependencies_report || {};
       const groups = report.grouped_dependencies || [];
       const stats = report.statistics || {};
+      const totalUnused = Number(report.total_unused_dependencies || 0);
       const metricHtml = `
         <div class="metric-grid">
           ${renderMetric('模式', '未使用依赖')}
@@ -2249,6 +2624,9 @@ std::string WebServer::BuildUiPage() {
           ${renderMetric('中置信度', stats.medium_confidence ?? 0)}
           ${renderMetric('低置信度', stats.low_confidence ?? 0)}
         </div>`;
+      const insightHtml = totalUnused > 0
+        ? renderInsightBanner('优先清理高置信度依赖', `当前识别到 ${totalUnused} 条可疑未使用依赖，建议先处理高置信度项，并在每轮变更后补一次 Bazel 编译验证。`, Number(stats.high_confidence || 0) > 0 ? 'warning' : 'danger')
+        : renderInsightBanner('依赖干净度不错', '当前规则集下没有发现可移除依赖，可以继续检查循环依赖或 build-time 数据。', 'success');
 
       const groupedCard = groups.length
         ? `
@@ -2315,6 +2693,7 @@ std::string WebServer::BuildUiPage() {
         </div>`;
 
       resultsEl.innerHTML = `
+        ${insightHtml}
         ${metricHtml}
         <div class="summary-grid">
           <div class="summary-main">${groupedCard}</div>
@@ -2328,6 +2707,7 @@ std::string WebServer::BuildUiPage() {
       const phase = report.phase_stats || {};
       const criticalPaths = report.critical_paths || [];
       const suggestions = report.suggestions || [];
+      const totalDuration = Number(summary.total_duration_seconds || 0);
       const metricHtml = `
         <div class="metric-grid">
           ${renderMetric('模式', '构建耗时')}
@@ -2337,6 +2717,9 @@ std::string WebServer::BuildUiPage() {
           ${renderMetric('关键路径', criticalPaths.length)}
           ${renderMetric('优化建议', suggestions.length)}
         </div>`;
+      const insightHtml = suggestions.length
+        ? renderInsightBanner('先盯最慢 phase 与关键路径', `这次构建总耗时 ${totalDuration}s，报告给出了 ${suggestions.length} 条优化建议，优先处理 execution / critical path 上的高影响项。`, totalDuration > 60 ? 'danger' : 'warning')
+        : renderInsightBanner('没有明显热点', '当前报告没有给出额外优化建议，可以结合 phase stats 和关键路径做人工复核。', 'success');
 
       const mainCard = `
         <div class="card">
@@ -2404,6 +2787,7 @@ std::string WebServer::BuildUiPage() {
         </div>`;
 
       resultsEl.innerHTML = `
+        ${insightHtml}
         ${metricHtml}
         <div class="summary-grid">
           <div class="summary-main">${mainCard}</div>
@@ -2448,8 +2832,38 @@ std::string WebServer::BuildUiPage() {
 
       const currentPerformance = currentPayload.performance || {};
       const previousPerformance = previousPayload.performance || {};
+      let compareInsightHtml = renderInsightBanner('与最近一次成功任务对比', '你可以先看核心指标变化，再结合当前分析耗时判断缓存、依赖准备和分析本身的变化。');
+      if (currentPayload.mode === 'cycle') {
+        const currentReport = currentPayload.report.report || {};
+        const previousReport = previousPayload.report.report || {};
+        const delta = Number(currentReport.total_cycles || 0) - Number(previousReport.total_cycles || 0);
+        compareInsightHtml = delta > 0
+          ? renderInsightBanner('循环风险上升', `和基线相比，循环数增加了 ${delta} 条，建议优先查看新增环。`, 'danger')
+          : delta < 0
+            ? renderInsightBanner('循环风险下降', `和基线相比，循环数减少了 ${Math.abs(delta)} 条，说明治理方向有效。`, 'success')
+            : renderInsightBanner('循环规模持平', '循环数量没有变化，可以重点比较具体路径是否更短、更容易治理。');
+      } else if (currentPayload.mode === 'unused') {
+        const currentReport = currentPayload.report.unused_dependencies_report || {};
+        const previousReport = previousPayload.report.unused_dependencies_report || {};
+        const delta = Number(currentReport.total_unused_dependencies || 0) - Number(previousReport.total_unused_dependencies || 0);
+        compareInsightHtml = delta > 0
+          ? renderInsightBanner('待清理依赖变多', `和基线相比，未使用依赖增加了 ${delta} 条，建议优先看高置信度变化。`, 'warning')
+          : delta < 0
+            ? renderInsightBanner('依赖清理有效', `和基线相比，未使用依赖减少了 ${Math.abs(delta)} 条。`, 'success')
+            : renderInsightBanner('依赖规模持平', '未使用依赖数量变化不大，可以结合高/中/低置信度继续判断。');
+      } else {
+        const currentReport = currentPayload.report.build_time_report || {};
+        const previousReport = previousPayload.report.build_time_report || {};
+        const delta = Number((currentReport.summary || {}).total_duration_seconds || 0) - Number((previousReport.summary || {}).total_duration_seconds || 0);
+        compareInsightHtml = delta > 0
+          ? renderInsightBanner('构建变慢了', `和基线相比，总耗时增加了 ${delta.toFixed(2)}s，建议优先检查 execution 与 critical path。`, 'danger')
+          : delta < 0
+            ? renderInsightBanner('构建速度有改善', `和基线相比，总耗时下降了 ${Math.abs(delta).toFixed(2)}s。`, 'success')
+            : renderInsightBanner('构建耗时基本持平', '总耗时没有明显变化，可以继续看建议数和分析耗时变化。');
+      }
 
       resultsEl.innerHTML = `
+        ${compareInsightHtml}
         <div class="metric-grid">
           ${cards.join('')}
           <div class="metric-card">
@@ -2553,24 +2967,48 @@ std::string WebServer::BuildUiPage() {
     async function refreshView() {
       setToolbarState(currentView);
       updateResultsMeta(latestPayload);
+      const payloadBaseKey = latestPayload && latestPayload.ok
+        ? `${latestPayloadTaskId}|${latestPayload.mode}|${latestPayload.workspace_path}|${latestPayload.cache_hit ? 1 : 0}|${Number((latestPayload.performance || {}).total_ms || 0).toFixed(2)}`
+        : 'empty';
       if (currentView === 'compare') {
         try {
           const baseline = await ensureComparePayload(latestPayload);
+          const compareKey = `${currentView}|${payloadBaseKey}|${baseline ? baseline.task_id : 'none'}`;
+          if (renderState.viewKey === compareKey) {
+            return;
+          }
           renderCompareSummary(latestPayload, baseline ? baseline.result : null);
+          renderState.viewKey = compareKey;
         } catch (error) {
           renderEmptyState('结果对比加载失败', error && error.message ? error.message : String(error));
+          renderState.viewKey = `${currentView}|${payloadBaseKey}|error`;
         }
         return;
       }
       if (currentView === 'html') {
+        const htmlKey = `${currentView}|${payloadBaseKey}|${latestPayload && latestPayload.html_report ? latestPayload.html_report.length : 0}`;
+        if (renderState.viewKey === htmlKey) {
+          return;
+        }
         renderHtmlPreview(latestPayload);
+        renderState.viewKey = htmlKey;
         return;
       }
       if (currentView === 'json') {
+        const jsonKey = `${currentView}|${payloadBaseKey}`;
+        if (renderState.viewKey === jsonKey) {
+          return;
+        }
         renderJson(latestPayload);
+        renderState.viewKey = jsonKey;
+        return;
+      }
+      const summaryKey = `${currentView}|${payloadBaseKey}`;
+      if (renderState.viewKey === summaryKey) {
         return;
       }
       renderSummary(latestPayload);
+      renderState.viewKey = summaryKey;
     }
 
     function setMode(mode) {
@@ -2612,6 +3050,31 @@ std::string WebServer::BuildUiPage() {
       refreshView();
     });
 
+    resultsEl?.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) {
+        return;
+      }
+      if (button.classList.contains('empty-run-button')) {
+        if (!workspaceInputEl.value.trim()) {
+          setStatus('请先填写 workspace 路径。', 'error');
+          return;
+        }
+        submitAnalysis({
+          ...buildCurrentFormPayload()
+        });
+        return;
+      }
+      if (button.classList.contains('empty-open-latest-button')) {
+        const latestCompletedTask = sortTasksForDisplay(latestTaskHistory).find((task) => task.status === 'completed');
+        if (!latestCompletedTask) {
+          setStatus('当前没有可打开的历史成功任务。', 'error');
+          return;
+        }
+        openTaskResult(latestCompletedTask.task_id);
+      }
+    });
+
     resetButton.addEventListener('click', () => {
       stopPolling();
       workspaceInputEl.value = '';
@@ -2621,6 +3084,8 @@ std::string WebServer::BuildUiPage() {
       setMode('cycle');
       latestPayload = null;
       latestPayloadTaskId = '';
+      comparePayload = null;
+      invalidateViewRenderCache();
       currentView = 'summary';
       setStatus('表单已重置。', '');
       refreshView();
@@ -2629,6 +3094,7 @@ std::string WebServer::BuildUiPage() {
       refreshTaskHistory(true);
       savePreferences();
       renderPresetPanel();
+      workspaceInputEl.focus();
     });
 
     savePresetButtonEl.addEventListener('click', () => {
@@ -2639,6 +3105,241 @@ std::string WebServer::BuildUiPage() {
     });
     taskDrawerBackdropEl.addEventListener('click', () => {
       closeTaskDrawer();
+    });
+
+    cachePanelEl?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button) {
+        return;
+      }
+      if (button.id === 'refresh-cache-button') {
+        refreshCacheStatus();
+        return;
+      }
+      if (button.id === 'clear-cache-button') {
+        try {
+          const response = await fetch('/api/cache/clear', { method: 'POST' });
+          const data = await response.json();
+          if (!response.ok || !data.ok) {
+            throw new Error(data.error || '清空缓存失败');
+          }
+          setStatus('缓存已清空。', 'success');
+          latestPayload = null;
+          latestPayloadTaskId = '';
+          comparePayload = null;
+          taskResultCache.clear();
+          invalidateViewRenderCache();
+          refreshView();
+          await refreshCacheStatus();
+          await refreshTaskHistory();
+        } catch (error) {
+          const message = error && error.message ? error.message : String(error);
+          setStatus(message, 'error');
+        }
+      }
+    });
+
+    recentWorkspacesPanelEl?.addEventListener('click', (event) => {
+      const button = event.target.closest('button');
+      if (!button) {
+        return;
+      }
+      if (button.classList.contains('favorite-current-workspace-button')) {
+        toggleFavoriteWorkspace(workspaceInputEl.value);
+        return;
+      }
+      if (button.classList.contains('favorite-workspace-button')) {
+        workspaceInputEl.value = button.dataset.workspace || '';
+        savePreferences();
+        renderRecentWorkspaces();
+        setStatus(`已选中收藏工作区：${workspaceInputEl.value}`, 'success');
+        return;
+      }
+      if (button.classList.contains('recent-workspace-button')) {
+        workspaceInputEl.value = button.dataset.workspace || '';
+        savePreferences();
+        renderRecentWorkspaces();
+        setStatus(`已选中最近工作区：${workspaceInputEl.value}`, 'success');
+      }
+    });
+
+    presetPanelEl?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button) {
+        return;
+      }
+      const presetId = button.dataset.presetId;
+      const preset = analysisPresets.find((item) => item.id === presetId);
+      if (!preset) {
+        return;
+      }
+      if (button.classList.contains('preset-apply-button')) {
+        applyTaskToForm(preset);
+        forceRefreshEl.checked = Boolean(preset.force_refresh);
+        savePreferences();
+        renderPresetPanel();
+        setStatus(`已载入预设：${preset.name}`, 'success');
+        return;
+      }
+      if (button.classList.contains('preset-run-button')) {
+        await runPreset(preset);
+        return;
+      }
+      if (button.classList.contains('preset-delete-button')) {
+        analysisPresets = analysisPresets.filter((item) => item.id !== presetId);
+        savePreferences();
+        renderPresetPanel();
+        setStatus(`已删除预设：${preset.name}`, 'success');
+      }
+    });
+
+    taskHistoryPanelEl?.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!target || target.id !== 'task-search-input') {
+        return;
+      }
+      taskFilters.q = target.value.trim();
+      if (taskSearchDebounceTimer) {
+        clearTimeout(taskSearchDebounceTimer);
+      }
+      taskSearchDebounceTimer = setTimeout(() => {
+        refreshTaskHistory(true);
+      }, 220);
+    });
+
+    taskHistoryPanelEl?.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!target) {
+        return;
+      }
+      if (target.id === 'task-mode-filter') {
+        taskFilters.mode = target.value;
+        refreshTaskHistory(true);
+        return;
+      }
+      if (target.id === 'task-status-filter') {
+        taskFilters.status = target.value;
+        refreshTaskHistory(true);
+      }
+    });
+
+    taskHistoryPanelEl?.addEventListener('click', (event) => {
+      const button = event.target.closest('button, .task-filter-shortcut');
+      if (!button) {
+        return;
+      }
+      if (button.classList.contains('task-filter-shortcut')) {
+        taskFilters.status = button.dataset.status || '';
+        refreshTaskHistory(true);
+        return;
+      }
+      if (button.id === 'task-load-more-button') {
+        taskFilters.offset += taskFilters.limit;
+        refreshTaskHistory();
+        return;
+      }
+      const taskId = button.dataset.taskId;
+      if (!taskId) {
+        return;
+      }
+      if (button.classList.contains('task-open-button')) {
+        openTaskResult(taskId);
+        return;
+      }
+      if (button.classList.contains('task-detail-button')) {
+        lastDrawerTriggerEl = button;
+        openTaskDrawer(taskId);
+        return;
+      }
+      if (button.classList.contains('task-apply-button')) {
+        const task = getTaskById(taskId);
+        applyTaskToForm(task);
+        setStatus(`已载入任务 ${taskId} 的配置。`, 'success');
+        return;
+      }
+      if (button.classList.contains('task-rerun-button')) {
+        const task = getTaskById(taskId);
+        if (!task) {
+          setStatus('未找到任务配置，无法重新运行。', 'error');
+          return;
+        }
+        rerunTask(task);
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && taskDrawerEl.classList.contains('visible')) {
+        closeTaskDrawer();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        if (runButton.disabled) {
+          return;
+        }
+        if (!workspaceInputEl.value.trim()) {
+          setStatus('请先填写 workspace 路径。', 'error');
+          workspaceInputEl.focus();
+          return;
+        }
+        event.preventDefault();
+        submitAnalysis({
+          ...buildCurrentFormPayload()
+        });
+      }
+    });
+
+    taskDrawerBodyEl?.addEventListener('click', async (event) => {
+      const button = event.target.closest('button');
+      if (!button || !drawerContext || !drawerContext.task) {
+        return;
+      }
+      const { task, resultPayload, baselineTask } = drawerContext;
+      if (button.classList.contains('drawer-apply-button')) {
+        applyTaskToForm(task);
+        setStatus(`已从任务详情载入配置：${task.task_id}`, 'success');
+        return;
+      }
+      if (button.classList.contains('drawer-rerun-button')) {
+        rerunTask(task);
+        return;
+      }
+      if (button.classList.contains('drawer-open-button')) {
+        openTaskResult(task.task_id);
+        return;
+      }
+      if (button.classList.contains('drawer-compare-button')) {
+        await openTaskResult(task.task_id);
+        currentView = 'compare';
+        refreshView();
+        return;
+      }
+      if (button.classList.contains('drawer-copy-button')) {
+        try {
+          const markdown = buildTaskSnapshotMarkdown(task, resultPayload, baselineTask);
+          await copyTextToClipboard(markdown);
+          setStatus(`已复制任务摘要：${task.task_id}`, 'success');
+        } catch (error) {
+          setStatus(error && error.message ? error.message : '复制任务摘要失败', 'error');
+        }
+        return;
+      }
+      if (button.classList.contains('drawer-export-json-button')) {
+        const snapshot = buildTaskSnapshot(task, resultPayload, baselineTask);
+        downloadTextFile(
+          `${normalizeWorkspaceName(task.workspace_path)}-${task.task_id}-snapshot.json`,
+          JSON.stringify(snapshot, null, 2),
+          'application/json;charset=utf-8');
+        setStatus(`已导出任务快照 JSON：${task.task_id}`, 'success');
+        return;
+      }
+      if (button.classList.contains('drawer-export-md-button')) {
+        const markdown = buildTaskSnapshotMarkdown(task, resultPayload, baselineTask);
+        downloadTextFile(
+          `${normalizeWorkspaceName(task.workspace_path)}-${task.task_id}-snapshot.md`,
+          markdown,
+          'text/markdown;charset=utf-8');
+        setStatus(`已导出任务快照 Markdown：${task.task_id}`, 'success');
+      }
     });
 
     async function pollTask(taskId) {
@@ -2661,9 +3362,12 @@ std::string WebServer::BuildUiPage() {
             latestPayload = resultData.result;
             latestPayloadTaskId = taskId;
             comparePayload = null;
+            invalidateViewRenderCache();
           } else {
             latestPayload = { ok: false, error: '任务已完成，但结果不可用。' };
             latestPayloadTaskId = '';
+            comparePayload = null;
+            invalidateViewRenderCache();
           }
           currentView = 'summary';
           setStatus('分析完成。', 'success');
@@ -2687,6 +3391,8 @@ std::string WebServer::BuildUiPage() {
         setStatus(message, 'error');
         latestPayload = { ok: false, error: message };
         latestPayloadTaskId = '';
+        comparePayload = null;
+        invalidateViewRenderCache();
         refreshView();
         runButton.disabled = false;
         runButton.textContent = '运行分析';
@@ -2694,6 +3400,17 @@ std::string WebServer::BuildUiPage() {
     }
 
     async function submitAnalysis(payload) {
+      const normalizedBazelBinary = String(payload.bazel_binary || '').trim();
+      const usingImplicitBazelCommand =
+        !normalizedBazelBinary ||
+        normalizedBazelBinary === 'bazel' ||
+        normalizedBazelBinary === 'bazelisk';
+      if (environmentInfo && !environmentInfo.bazel_available && usingImplicitBazelCommand) {
+        renderBazelEnvironmentHint();
+        setStatus('当前机器未检测到 Bazel。请先安装 bazel / bazelisk，或在“Bazel 路径”中填写可执行文件绝对路径。', 'error');
+        bazelInputEl.focus();
+        return;
+      }
       stopPolling();
       runButton.disabled = true;
       runButton.textContent = '分析中…';
@@ -2716,6 +3433,8 @@ std::string WebServer::BuildUiPage() {
           activeTaskPollAttempts = 0;
           latestPayload = null;
           latestPayloadTaskId = '';
+          comparePayload = null;
+          invalidateViewRenderCache();
           renderEmptyState('分析任务已启动', '后台正在执行分析，结果会在完成后自动刷新。');
           setStatus(data.message || '任务已加入后台队列', 'loading');
           activePollTimer = setTimeout(() => pollTask(data.task_id), nextPollDelay());
@@ -2729,16 +3448,22 @@ std::string WebServer::BuildUiPage() {
         latestPayload = data;
         latestPayloadTaskId = data.task_id || '';
         comparePayload = null;
+        invalidateViewRenderCache();
         currentView = 'summary';
         pushRecentWorkspace(payload.workspace_path);
         setStatus(`分析完成：${normalizeModeLabel(data.mode)} · ${data.workspace_path}${data.cache_hit ? ' · 已命中缓存' : ''}`, 'success');
         refreshView();
         refreshTaskHistory(true);
       } catch (error) {
-        const message = error && error.message ? error.message : String(error);
+        const rawMessage = error && error.message ? error.message : String(error);
+        const message = rawMessage.includes('Bazel binary is not executable or not found')
+          ? `${rawMessage}。请先安装 bazel / bazelisk，或在“Bazel 路径”中填写可执行文件绝对路径。`
+          : rawMessage;
         setStatus(message, 'error');
         latestPayload = { ok: false, error: message };
         latestPayloadTaskId = '';
+        comparePayload = null;
+        invalidateViewRenderCache();
         refreshView();
       } finally {
         if (!activePollTimer) {
@@ -2765,8 +3490,10 @@ std::string WebServer::BuildUiPage() {
     }
     preferencesReady = true;
     renderRecentWorkspaces();
+    renderBazelEnvironmentHint();
     renderPresetPanel();
     refreshView();
+    refreshEnvironmentInfo();
     refreshCacheStatus();
     refreshTaskHistory(true);
   </script>

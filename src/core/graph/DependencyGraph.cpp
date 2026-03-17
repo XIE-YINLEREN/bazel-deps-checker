@@ -1,6 +1,7 @@
 #include "DependencyGraph.h"
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <sstream>
 #include <vector>
 
@@ -20,6 +21,10 @@ void DependencyGraph::BuildGraph() {
     node_names_.clear();
     node_ids_.clear();
     adjacency_ids_.clear();
+    graph_.reserve(graph_targets_.size());
+    adjacency_set_.reserve(graph_targets_.size());
+    node_names_.reserve(graph_targets_.size());
+    node_ids_.reserve(graph_targets_.size());
     
     for (const auto& [name, target] : graph_targets_) {
         const size_t from_id = GetOrCreateNodeId(name);
@@ -31,10 +36,13 @@ void DependencyGraph::BuildGraph() {
         for (const auto& dep : target.deps) {
             std::string simplified_dep = SimplifyDependencyName(dep);
             if (!simplified_dep.empty() && simplified_dep.find("@") == std::string::npos) {
+                const auto [_, inserted] = dependency_set.insert(simplified_dep);
+                if (!inserted) {
+                    continue;
+                }
                 const size_t to_id = GetOrCreateNodeId(simplified_dep);
-                dependency_set.insert(simplified_dep);
-                dependencies.push_back(std::move(simplified_dep));
                 adjacency_ids_[from_id].push_back(to_id);
+                dependencies.push_back(std::move(simplified_dep));
             }
         }
         
@@ -45,6 +53,7 @@ void DependencyGraph::BuildGraph() {
 
 void DependencyGraph::BuildReverseDependencies() {
     reverse_deps_cache_.clear();
+    reverse_deps_cache_.reserve(graph_.size());
     
     // 构建反向依赖关系图
     for (const auto& [target, deps] : graph_) {
@@ -55,12 +64,18 @@ void DependencyGraph::BuildReverseDependencies() {
 }
 
 std::string DependencyGraph::SimplifyDependencyName(const std::string& dep) const {
-    std::string result = dep;
-    
-    result.erase(std::remove(result.begin(), result.end(), ' '), result.end());
-    result.erase(std::remove(result.begin(), result.end(), '\t'), result.end());
-    result.erase(std::remove(result.begin(), result.end(), '\n'), result.end());
-    
+    const size_t first_space = dep.find_first_of(" \t\n");
+    if (first_space == std::string::npos) {
+        return dep;
+    }
+
+    std::string result;
+    result.reserve(dep.size());
+    for (char ch : dep) {
+        if (ch != ' ' && ch != '\t' && ch != '\n') {
+            result.push_back(ch);
+        }
+    }
     return result;
 }
 
@@ -162,7 +177,15 @@ void DependencyGraph::FindCyclesDFS(
                 
                 while (current != neighbor) {
                     cycle.push_back(current);
-                    current = parent[current];
+                    const auto parent_it = parent.find(current);
+                    if (parent_it == parent.end()) {
+                        cycle.clear();
+                        break;
+                    }
+                    current = parent_it->second;
+                }
+                if (cycle.empty()) {
+                    continue;
                 }
                 cycle.push_back(neighbor);
                 cycle.push_back(node);
@@ -254,7 +277,7 @@ bool DependencyGraph::HasDirectEdge(const std::string& from, const std::string& 
     return adjacency_it->second.find(to) != adjacency_it->second.end();
 }
 
-std::unordered_set<std::string> DependencyGraph::GetTransitiveDependencies(
+const std::unordered_set<std::string>& DependencyGraph::GetTransitiveDependencies(
     const std::string& target) const {
     return GetTransitiveDependenciesRef(target);
 }
@@ -304,10 +327,12 @@ bool DependencyGraph::IsDependencyTrulyNeeded(const std::string& target,
 
 bool DependencyGraph::IsDependencyNeededByTransitiveDeps(const std::string& target,
                                                        const std::string& dependency) const {
-    const std::string cache_key = target + '\n' + dependency;
-    auto cached = dependency_need_cache_.find(cache_key);
-    if (cached != dependency_need_cache_.end()) {
-        return cached->second;
+    const auto target_cache_it = dependency_need_cache_.find(target);
+    if (target_cache_it != dependency_need_cache_.end()) {
+        const auto cached_it = target_cache_it->second.find(dependency);
+        if (cached_it != target_cache_it->second.end()) {
+            return cached_it->second;
+        }
     }
 
     // 检查目标的直接依赖是否依赖这个库
@@ -326,14 +351,14 @@ bool DependencyGraph::IsDependencyNeededByTransitiveDeps(const std::string& targ
             if (source_analyzer_) {
                 if (source_analyzer_->IsDependencyNeeded(direct_dep, dependency)) {
                     // 直接依赖真正需要这个依赖，所以目标需要传递声明
-                    dependency_need_cache_[cache_key] = true;
+                    dependency_need_cache_[target][dependency] = true;
                     return true;
                 }
             }
         }
     }
     
-    dependency_need_cache_[cache_key] = false;
+    dependency_need_cache_[target][dependency] = false;
     return false;
 }
 
@@ -358,12 +383,13 @@ bool DependencyGraph::IsDependencyUsed(const std::string& dependency,
     return false;
 }
 
-std::unordered_set<std::string> DependencyGraph::GetReverseDependencies(const std::string& target) const {
+const std::unordered_set<std::string>& DependencyGraph::GetReverseDependencies(
+    const std::string& target) const {
     auto it = reverse_deps_cache_.find(target);
     if (it != reverse_deps_cache_.end()) {
         return it->second;
     }
-    return {};
+    return empty_dependency_set_;
 }
 
 const std::vector<std::string>& DependencyGraph::GetDirectDependencies(const std::string& target) const {
@@ -421,10 +447,6 @@ std::vector<std::string> DependencyGraph::FindTransitiveRedundantDependencies(co
         return redundant_deps;
     }
     
-    // 获取所有传递依赖
-    const auto& transitive_deps = GetTransitiveDependenciesRef(target);
-    (void)transitive_deps;
-    
     // 检查每个直接依赖是否可以被省略
     for (const auto& direct_dep : it->second) {
         // 检查这个直接依赖是否已经通过其他路径成为传递依赖
@@ -467,21 +489,23 @@ const std::unordered_set<std::string>& DependencyGraph::GetTransitiveDependencie
     }
 
     std::unordered_set<std::string> transitive_deps;
-    std::queue<size_t> queue;
-    std::unordered_set<size_t> visited_ids;
+    transitive_deps.reserve(adjacency_ids_[target_id].size() * 2 + 1);
+
+    std::vector<size_t> traversal_queue;
+    traversal_queue.reserve(adjacency_ids_[target_id].size() * 2 + 1);
+    std::vector<std::uint8_t> visited_ids(node_names_.size(), 0);
 
     for (const size_t dep_id : adjacency_ids_[target_id]) {
-        queue.push(dep_id);
-    }
-
-    while (!queue.empty()) {
-        const size_t current = queue.front();
-        queue.pop();
-
-        if (!visited_ids.insert(current).second) {
+        if (dep_id >= visited_ids.size() || visited_ids[dep_id] != 0) {
             continue;
         }
+        visited_ids[dep_id] = 1;
+        traversal_queue.push_back(dep_id);
+    }
 
+    size_t cursor = 0;
+    while (cursor < traversal_queue.size()) {
+        const size_t current = traversal_queue[cursor++];
         if (current >= node_names_.size()) {
             continue;
         }
@@ -492,8 +516,9 @@ const std::unordered_set<std::string>& DependencyGraph::GetTransitiveDependencie
         }
 
         for (const size_t dep_id : adjacency_ids_[current]) {
-            if (visited_ids.find(dep_id) == visited_ids.end()) {
-                queue.push(dep_id);
+            if (dep_id < visited_ids.size() && visited_ids[dep_id] == 0) {
+                visited_ids[dep_id] = 1;
+                traversal_queue.push_back(dep_id);
             }
         }
     }

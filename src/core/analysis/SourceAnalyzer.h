@@ -7,6 +7,7 @@
 #include <mutex>
 #include <stack>
 #include <set>
+#include <condition_variable>
 
 #include "log/logger.h"
 #include "struct.h"
@@ -128,13 +129,20 @@ private:
     // 反向索引：header basename -> provider targets
     std::unordered_map<std::string, std::unordered_set<std::string>> provided_header_to_targets_;
     std::unordered_map<std::string, std::string> header_path_cache_;
+    // 文件路径解析缓存：原始路径 -> 解析后的可访问路径（可能为空字符串）
+    mutable std::unordered_map<std::string, std::string> resolved_path_cache_;
     // 文件级 include 解析缓存
     std::unordered_map<std::string, std::unordered_set<std::string>> parsed_includes_cache_;
+    // 打不开的文件只告警一次，避免刷日志
+    std::unordered_set<std::string> warned_unreadable_files_;
     // 递归头文件闭包缓存：header path -> recursive includes
     std::unordered_map<std::string, std::unordered_set<std::string>> recursive_header_includes_cache_;
     // target -> dependency 判定缓存
     std::unordered_map<std::string, bool> dependency_needed_cache_;
     // target 级可移除依赖缓存
     std::unordered_map<std::string, std::vector<RemovableDependency>> removable_dependencies_cache_;
+    // 避免并发重复分析同一个 target
+    std::unordered_set<std::string> analyzing_targets_;
+    std::condition_variable analysis_cv_;
     mutable std::mutex analysis_mutex_;
 };

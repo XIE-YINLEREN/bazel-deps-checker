@@ -33,6 +33,65 @@ constexpr int kBacklog = 16;
 constexpr size_t kMaxRequestSize = 1024 * 1024;
 constexpr size_t kMaxPersistedTasks = 60;
 
+bool IsExecutableFile(const std::filesystem::path& path) {
+    if (path.empty()) {
+        return false;
+    }
+    std::error_code error_code;
+    if (!std::filesystem::exists(path, error_code) ||
+        !std::filesystem::is_regular_file(path, error_code)) {
+        return false;
+    }
+    return ::access(path.c_str(), X_OK) == 0;
+}
+
+std::vector<std::string> DetectBazelBinaries() {
+    std::vector<std::string> detected;
+    auto append_if_missing = [&detected](const std::string& value) {
+        if (value.empty()) {
+            return;
+        }
+        if (std::find(detected.begin(), detected.end(), value) == detected.end()) {
+            detected.push_back(value);
+        }
+    };
+
+    const std::vector<std::string> path_candidates = {"bazel", "bazelisk"};
+    const char* path_env = std::getenv("PATH");
+    if (path_env != nullptr) {
+        std::stringstream path_stream(path_env);
+        std::string segment;
+        while (std::getline(path_stream, segment, ':')) {
+            if (segment.empty()) {
+                continue;
+            }
+            for (const std::string& candidate : path_candidates) {
+                const std::filesystem::path executable =
+                    std::filesystem::path(segment) / candidate;
+                if (IsExecutableFile(executable)) {
+                    append_if_missing(executable.string());
+                }
+            }
+        }
+    }
+
+    const std::vector<std::string> absolute_candidates = {
+        "/opt/homebrew/bin/bazel",
+        "/opt/homebrew/bin/bazelisk",
+        "/usr/local/bin/bazel",
+        "/usr/local/bin/bazelisk",
+        "/usr/bin/bazel",
+        "/usr/bin/bazelisk",
+    };
+    for (const std::string& candidate : absolute_candidates) {
+        if (IsExecutableFile(candidate)) {
+            append_if_missing(candidate);
+        }
+    }
+
+    return detected;
+}
+
 std::int64_t CurrentEpochMillis() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
                std::chrono::system_clock::now().time_since_epoch())
@@ -135,6 +194,18 @@ std::string Lowercase(std::string value) {
     return value;
 }
 
+std::string BuildTaskSearchableLower(const WebServer::AnalysisTask& task) {
+    return Lowercase(
+        task.id + "\n" + task.workspace_path + "\n" + task.message + "\n" + task.mode + "\n" +
+        task.bazel_binary);
+}
+
+void RefreshTaskDerivedFields(WebServer::AnalysisTask& task) {
+    task.status_lower = Lowercase(task.status);
+    task.mode_lower = Lowercase(task.mode);
+    task.searchable_text_lower = BuildTaskSearchableLower(task);
+}
+
 bool ParseBoolParam(const std::map<std::string, std::string>& query_params, const std::string& key) {
     const auto it = query_params.find(key);
     if (it == query_params.end()) {
@@ -143,6 +214,33 @@ bool ParseBoolParam(const std::map<std::string, std::string>& query_params, cons
 
     const std::string value = Lowercase(it->second);
     return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+json BuildTaskSummaryJson(const WebServer::AnalysisTask& task) {
+    return json{
+        {"task_id", task.id},
+        {"status", task.status},
+        {"message", task.message},
+        {"mode", task.mode},
+        {"workspace_path", task.workspace_path},
+        {"bazel_binary", task.bazel_binary},
+        {"include_tests", task.include_tests},
+        {"cache_hit", task.cache_hit},
+        {"total_ms", task.total_ms},
+        {"created_at_ms", task.created_at_ms},
+        {"updated_at_ms", task.updated_at_ms},
+    };
+}
+
+WebServer::CachedAnalyzeResponse BuildCachedAnalyzeResponse(const std::string& response_body) {
+    WebServer::CachedAnalyzeResponse cache_entry{response_body, response_body};
+    try {
+        json cached_response = json::parse(response_body);
+        cached_response["cache_hit"] = true;
+        cache_entry.response_body_cache_hit = cached_response.dump(2);
+    } catch (const std::exception&) {
+    }
+    return cache_entry;
 }
 
 json TaskToJson(const WebServer::AnalysisTask& task) {
@@ -179,6 +277,7 @@ WebServer::AnalysisTask TaskFromJson(const json& item) {
     task.created_at_ms = item.value("created_at_ms", CurrentEpochMillis());
     task.updated_at_ms = item.value("updated_at_ms", task.created_at_ms);
     task.response_body = item.value("response_body", "");
+    RefreshTaskDerivedFields(task);
     return task;
 }
 
@@ -195,6 +294,7 @@ void FillTaskMetadataFromResponse(WebServer::AnalysisTask& task, const std::stri
         task.include_tests = result.value("include_tests", task.include_tests);
         task.cache_hit = result.value("cache_hit", task.cache_hit);
         task.total_ms = result.value("performance", json::object()).value("total_ms", task.total_ms);
+        RefreshTaskDerivedFields(task);
     } catch (const std::exception&) {
     }
 }
@@ -355,6 +455,10 @@ WebServer::HttpResponse WebServer::RouteRequest(const HttpRequest& request) cons
         return HandleCacheStatusRequest();
     }
 
+    if (request.method == "GET" && request.route_path == "/api/environment") {
+        return HandleEnvironmentRequest();
+    }
+
     if (request.method == "POST" && request.route_path == "/api/cache/clear") {
         return HandleCacheClearRequest();
     }
@@ -393,6 +497,13 @@ WebServer::HttpResponse WebServer::HandleAnalyzeRequest(const std::string& body)
     request_args.include_tests = request_json.value("include_tests", request_args.include_tests);
     request_args.execute_function = ParseMode(request_json.value("mode", ModeToString(request_args.execute_function)));
 
+    if (request_args.bazel_binary.empty() || request_args.bazel_binary == "bazel") {
+        const std::vector<std::string> detected_binaries = DetectBazelBinaries();
+        if (!detected_binaries.empty()) {
+            request_args.bazel_binary = detected_binaries.front();
+        }
+    }
+
     request_args.Validate();
 
     const std::string cache_key = BuildCacheKey(request_args);
@@ -400,9 +511,12 @@ WebServer::HttpResponse WebServer::HandleAnalyzeRequest(const std::string& body)
         std::lock_guard<std::mutex> lock(cache_mutex_);
         const auto cached = analyze_cache_.find(cache_key);
         if (cached != analyze_cache_.end()) {
-            json cached_response = json::parse(cached->second.response_body);
-            cached_response["cache_hit"] = true;
-            return HttpResponse{200, "application/json; charset=utf-8", cached_response.dump(2)};
+            return HttpResponse{
+                200,
+                "application/json; charset=utf-8",
+                cached->second.response_body_cache_hit.empty()
+                    ? cached->second.response_body
+                    : cached->second.response_body_cache_hit};
         }
     }
 
@@ -463,33 +577,26 @@ std::string WebServer::BuildAnalyzeResponseBody(
 WebServer::HttpResponse WebServer::HandleTaskStatusRequest(
     const HttpRequest& request,
     const std::string& task_id) const {
-    std::lock_guard<std::mutex> lock(tasks_mutex_);
-    const auto it = tasks_.find(task_id);
-    if (it == tasks_.end()) {
-        return HttpResponse{
-            404,
-            "application/json; charset=utf-8",
-            json({{"ok", false}, {"error", "Task not found"}}).dump(2),
-        };
+    AnalysisTask task_snapshot;
+    {
+        std::lock_guard<std::mutex> lock(tasks_mutex_);
+        const auto it = tasks_.find(task_id);
+        if (it == tasks_.end()) {
+            return HttpResponse{
+                404,
+                "application/json; charset=utf-8",
+                json({{"ok", false}, {"error", "Task not found"}}).dump(2),
+            };
+        }
+        task_snapshot = it->second;
     }
 
-    json response = {
-        {"ok", true},
-        {"task_id", it->second.id},
-        {"status", it->second.status},
-        {"message", it->second.message},
-        {"mode", it->second.mode},
-        {"workspace_path", it->second.workspace_path},
-        {"bazel_binary", it->second.bazel_binary},
-        {"include_tests", it->second.include_tests},
-        {"cache_hit", it->second.cache_hit},
-        {"total_ms", it->second.total_ms},
-        {"created_at_ms", it->second.created_at_ms},
-        {"updated_at_ms", it->second.updated_at_ms},
-    };
+    json response = BuildTaskSummaryJson(task_snapshot);
+    response["ok"] = true;
 
     const bool include_result = ParseBoolParam(request.query_params, "include_result");
-    const std::string result_body = it->second.status == "completed" ? LoadTaskResultBodyLocked(it->second) : "";
+    const std::string result_body =
+        task_snapshot.status == "completed" ? LoadTaskResultBodyLocked(task_snapshot) : "";
     response["result_ready"] = !result_body.empty();
 
     if (include_result && !result_body.empty()) {
@@ -500,25 +607,27 @@ WebServer::HttpResponse WebServer::HandleTaskStatusRequest(
 }
 
 WebServer::HttpResponse WebServer::HandleTaskListRequest(const HttpRequest& request) const {
-    std::lock_guard<std::mutex> lock(tasks_mutex_);
-    std::vector<const AnalysisTask*> ordered_tasks;
-    ordered_tasks.reserve(tasks_.size());
-    for (const auto& [task_id, task] : tasks_) {
-        (void)task_id;
-        if (task.id.empty()) {
-            continue;
+    std::vector<AnalysisTask> ordered_tasks;
+    {
+        std::lock_guard<std::mutex> lock(tasks_mutex_);
+        ordered_tasks.reserve(tasks_.size());
+        for (const auto& [task_id, task] : tasks_) {
+            (void)task_id;
+            if (task.id.empty()) {
+                continue;
+            }
+            ordered_tasks.push_back(task);
         }
-        ordered_tasks.push_back(&task);
     }
 
     std::sort(
         ordered_tasks.begin(),
         ordered_tasks.end(),
-        [](const AnalysisTask* left, const AnalysisTask* right) {
-            if (left->updated_at_ms != right->updated_at_ms) {
-                return left->updated_at_ms > right->updated_at_ms;
+        [](const AnalysisTask& left, const AnalysisTask& right) {
+            if (left.updated_at_ms != right.updated_at_ms) {
+                return left.updated_at_ms > right.updated_at_ms;
             }
-            return left->id > right->id;
+            return left.id > right.id;
         });
 
     size_t limit = 8;
@@ -544,19 +653,16 @@ WebServer::HttpResponse WebServer::HandleTaskListRequest(const HttpRequest& requ
     json tasks_json = json::array();
     size_t total_filtered = 0;
     size_t emitted = 0;
-    for (const AnalysisTask* task : ordered_tasks) {
-        if (!mode_filter.empty() && Lowercase(task->mode) != mode_filter) {
+    for (const AnalysisTask& task : ordered_tasks) {
+        if (!mode_filter.empty() && task.mode_lower != mode_filter) {
             continue;
         }
-        if (!status_filter.empty() && Lowercase(task->status) != status_filter) {
+        if (!status_filter.empty() && task.status_lower != status_filter) {
             continue;
         }
-        if (!text_filter.empty()) {
-            const std::string haystack = Lowercase(
-                task->id + "\n" + task->workspace_path + "\n" + task->message + "\n" + task->mode);
-            if (haystack.find(text_filter) == std::string::npos) {
+        if (!text_filter.empty() &&
+            task.searchable_text_lower.find(text_filter) == std::string::npos) {
                 continue;
-            }
         }
 
         ++total_filtered;
@@ -567,21 +673,7 @@ WebServer::HttpResponse WebServer::HandleTaskListRequest(const HttpRequest& requ
             continue;
         }
 
-        json item = {
-            {"task_id", task->id},
-            {"status", task->status},
-            {"message", task->message},
-            {"mode", task->mode},
-            {"workspace_path", task->workspace_path},
-            {"bazel_binary", task->bazel_binary},
-            {"include_tests", task->include_tests},
-            {"cache_hit", task->cache_hit},
-            {"total_ms", task->total_ms},
-            {"created_at_ms", task->created_at_ms},
-            {"updated_at_ms", task->updated_at_ms},
-        };
-
-        tasks_json.push_back(item);
+        tasks_json.push_back(BuildTaskSummaryJson(task));
         ++emitted;
     }
 
@@ -597,6 +689,21 @@ WebServer::HttpResponse WebServer::HandleTaskListRequest(const HttpRequest& requ
             {"has_more", offset + emitted < total_filtered},
         }).dump(2),
     };
+}
+
+WebServer::HttpResponse WebServer::HandleEnvironmentRequest() const {
+    const std::vector<std::string> detected_binaries = DetectBazelBinaries();
+    const std::string recommended_binary =
+        detected_binaries.empty() ? std::string() : detected_binaries.front();
+
+    json response = {
+        {"ok", true},
+        {"bazel_available", !detected_binaries.empty()},
+        {"detected_bazel_binaries", detected_binaries},
+        {"recommended_bazel_binary", recommended_binary},
+    };
+
+    return HttpResponse{200, "application/json; charset=utf-8", response.dump(2)};
 }
 
 WebServer::HttpResponse WebServer::HandleCacheStatusRequest() const {
@@ -655,7 +762,11 @@ std::string WebServer::CreateTask(const CommandLineArgs& request_args) const {
         false,
         0.0,
         now_ms,
-        now_ms};
+        now_ms,
+        "",
+        "",
+        ""};
+    RefreshTaskDerivedFields(tasks_[task_id]);
     TrimTasksLocked();
     PersistTaskHistoryLocked();
     return task_id;
@@ -671,16 +782,35 @@ void WebServer::UpdateTaskStatus(
     if (it == tasks_.end()) {
         const std::int64_t now_ms = CurrentEpochMillis();
         tasks_[task_id] = AnalysisTask{
-            task_id, status, message, "", "", "", "", "bazel", false, false, 0.0, now_ms, now_ms};
+            task_id,
+            status,
+            message,
+            "",
+            "",
+            "",
+            "",
+            "bazel",
+            false,
+            false,
+            0.0,
+            now_ms,
+            now_ms,
+            "",
+            "",
+            ""};
         if (!response_body.empty()) {
             SaveTaskResultBodyLocked(tasks_[task_id], response_body);
             FillTaskMetadataFromResponse(tasks_[task_id], response_body);
         }
+        RefreshTaskDerivedFields(tasks_[task_id]);
         TrimTasksLocked();
-        PersistTaskHistoryLocked();
+        if (status != "running") {
+            PersistTaskHistoryLocked();
+        }
         return;
     }
 
+    const bool status_changed = it->second.status != status;
     it->second.status = status;
     it->second.message = message;
     it->second.updated_at_ms = CurrentEpochMillis();
@@ -688,8 +818,11 @@ void WebServer::UpdateTaskStatus(
         SaveTaskResultBodyLocked(it->second, response_body);
         FillTaskMetadataFromResponse(it->second, response_body);
     }
+    RefreshTaskDerivedFields(it->second);
     TrimTasksLocked();
-    PersistTaskHistoryLocked();
+    if (status != "running" || status_changed) {
+        PersistTaskHistoryLocked();
+    }
 }
 
 void WebServer::RunAnalyzeTask(
@@ -720,8 +853,8 @@ void WebServer::RunAnalyzeTask(
 
             {
                 std::lock_guard<std::mutex> lock(cache_mutex_);
-                analyze_cache_[cycle_cache_key] = CachedAnalyzeResponse{cycle_response_body};
-                analyze_cache_[unused_cache_key] = CachedAnalyzeResponse{unused_response_body};
+                analyze_cache_[cycle_cache_key] = BuildCachedAnalyzeResponse(cycle_response_body);
+                analyze_cache_[unused_cache_key] = BuildCachedAnalyzeResponse(unused_response_body);
             }
 
             UpdateTaskStatus(
@@ -741,7 +874,7 @@ void WebServer::RunAnalyzeTask(
             BuildAnalyzeResponseBody(request_args, reports, false, sdk.getLastPerformanceInfo());
         {
             std::lock_guard<std::mutex> lock(cache_mutex_);
-            analyze_cache_[cache_key] = CachedAnalyzeResponse{response_body};
+            analyze_cache_[cache_key] = BuildCachedAnalyzeResponse(response_body);
         }
         UpdateTaskStatus(task_id, "completed", "分析完成。", response_body);
     } catch (const std::exception& error) {

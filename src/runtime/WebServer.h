@@ -33,6 +33,7 @@ public:
 
     struct CachedAnalyzeResponse {
         std::string response_body;
+        std::string response_body_cache_hit;
     };
 
     struct AnalysisTask {
@@ -49,6 +50,9 @@ public:
         double total_ms{0.0};
         std::int64_t created_at_ms{0};
         std::int64_t updated_at_ms{0};
+        std::string status_lower;
+        std::string mode_lower;
+        std::string searchable_text_lower;
     };
 
 private:
@@ -66,6 +70,7 @@ private:
     HttpResponse HandleAnalyzeRequest(const std::string& body) const;
     HttpResponse HandleTaskStatusRequest(const HttpRequest& request, const std::string& task_id) const;
     HttpResponse HandleTaskListRequest(const HttpRequest& request) const;
+    HttpResponse HandleEnvironmentRequest() const;
     HttpResponse HandleCacheStatusRequest() const;
     HttpResponse HandleCacheClearRequest() const;
     void SendResponse(int client_fd, const HttpResponse& response) const;

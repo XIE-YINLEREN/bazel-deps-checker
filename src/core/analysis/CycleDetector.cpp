@@ -5,7 +5,6 @@
 #include <string>
 #include <unordered_set>
 #include <string_view>
-#include <iostream>
 
 CycleDetector::CycleDetector(const DependencyGraph& graph,
                              const std::unordered_map<std::string, BazelTarget>& targets,
@@ -53,10 +52,6 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeUnusedDependencies() {
     return cached_unused_dependencies_;
 }
 
-std::string CycleDetector::BuildEdgeCacheKey(const std::string& from, const std::string& to) const {
-    return from + '\n' + to;
-}
-
 CycleAnalysis CycleDetector::ClassifyCycle(const std::vector<std::string>& cycle) const {
     CycleAnalysis analysis;
     analysis.cycle = cycle;
@@ -79,42 +74,39 @@ CycleAnalysis CycleDetector::ClassifyCycle(const std::vector<std::string>& cycle
 }
 
 void CycleDetector::AnalyzeRemovableDependencies(CycleAnalysis& analysis) const {
-    std::vector<RemovableDependency> all_removable_deps;
-    
+    analysis.removable_dependencies.clear();
+    analysis.removable_dependencies.reserve(analysis.cycle.size());
+    std::unordered_set<std::string> seen_edges;
+    seen_edges.reserve(analysis.cycle.size() * 2 + 1);
+
     // 分析循环中的每条边
     for (size_t i = 0; i < analysis.cycle.size(); ++i) {
-        std::string from = analysis.cycle[i];
-        std::string to = analysis.cycle[(i + 1) % analysis.cycle.size()];
-        
+        const std::string& from = analysis.cycle[i];
+        const std::string& to = analysis.cycle[(i + 1) % analysis.cycle.size()];
+
         // 检查目标是否存在
         if (targets_.find(from) == targets_.end() || targets_.find(to) == targets_.end()) {
             continue;
         }
-        
-        // 代码级别分析
-        auto code_level_deps = AnalyzeDependencyAtCodeLevel(from, to);
-        all_removable_deps.insert(all_removable_deps.end(), 
-                                 code_level_deps.begin(), code_level_deps.end());
-        
-        // Target级别分析
-        auto target_level_deps = AnalyzeDependencyAtTargetLevel(from, to);
-        all_removable_deps.insert(all_removable_deps.end(), 
-                                 target_level_deps.begin(), target_level_deps.end());
+
+        const auto append_high_confidence = [&](const std::vector<RemovableDependency>& candidates) {
+            for (RemovableDependency dep : candidates) {
+                dep.confidence = CalculateConfidence(dep);
+                if (dep.confidence != ConfidenceLevel::HIGH) {
+                    continue;
+                }
+                const std::string key = dep.from_target + '\n' + dep.to_target;
+                if (!seen_edges.insert(key).second) {
+                    continue;
+                }
+                analysis.removable_dependencies.push_back(std::move(dep));
+            }
+        };
+
+        append_high_confidence(AnalyzeDependencyAtCodeLevel(from, to));
+        append_high_confidence(AnalyzeDependencyAtTargetLevel(from, to));
     }
-    
-    // 计算置信度并过滤
-    for (auto& dep : all_removable_deps) {
-        dep.confidence = CalculateConfidence(dep);
-    }
-    
-    // 只保留高置信度的建议
-    analysis.removable_dependencies.clear();
-    std::copy_if(all_removable_deps.begin(), all_removable_deps.end(),
-                 std::back_inserter(analysis.removable_dependencies),
-                 [](const RemovableDependency& dep) {
-                     return dep.confidence == ConfidenceLevel::HIGH;
-                 });
-    
+
     // 如果有可移除的依赖，添加相应的修复建议
     if (!analysis.removable_dependencies.empty()) {
         analysis.suggested_fixes.emplace_back("可以安全删除以下依赖来打破循环:");
@@ -130,10 +122,12 @@ void CycleDetector::AnalyzeRemovableDependencies(CycleAnalysis& analysis) const 
 
 std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtCodeLevel(
     const std::string& from, const std::string& to) const {
-    const std::string cache_key = BuildEdgeCacheKey(from, to);
-    auto cached = code_level_cache_.find(cache_key);
-    if (cached != code_level_cache_.end()) {
-        return cached->second;
+    auto from_cache_it = code_level_cache_.find(from);
+    if (from_cache_it != code_level_cache_.end()) {
+        auto to_cache_it = from_cache_it->second.find(to);
+        if (to_cache_it != from_cache_it->second.end()) {
+            return to_cache_it->second;
+        }
     }
 
     std::vector<RemovableDependency> results;
@@ -143,31 +137,36 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtCodeLevel(
     }
     
     try {
-        // 使用 SourceAnalyzer 分析依赖
+        // 仅做一次 from 级别分析，并将结果按 to_target 分桶缓存。
         auto removable_deps = source_analyzer_->GetRemovableDependencies(from);
-        
-        // 过滤出当前分析的依赖
+        auto& from_cache = code_level_cache_[from];
+        from_cache.reserve(removable_deps.size() + 1);
         for (const auto& dep : removable_deps) {
-            if (dep.to_target == to) {
-                results.push_back(dep);
-            }
+            from_cache[dep.to_target].push_back(dep);
         }
+        auto to_cache_it = from_cache.find(to);
+        if (to_cache_it != from_cache.end()) {
+            return to_cache_it->second;
+        }
+        from_cache.emplace(to, std::vector<RemovableDependency>{});
         
     } catch (const std::exception& e) {
         // 源代码分析可能失败，记录错误但不中断流程
         LOG_WARN("代码级别分析失败 (" + from + " -> " + to + "): " + e.what());
     }
 
-    code_level_cache_[cache_key] = results;
-    return code_level_cache_[cache_key];
+    code_level_cache_[from][to] = results;
+    return code_level_cache_[from][to];
 }
 
 std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtTargetLevel(
     const std::string& from, const std::string& to) const {
-    const std::string cache_key = BuildEdgeCacheKey(from, to);
-    auto cached = target_level_cache_.find(cache_key);
-    if (cached != target_level_cache_.end()) {
-        return cached->second;
+    auto from_cache_it = target_level_cache_.find(from);
+    if (from_cache_it != target_level_cache_.end()) {
+        auto to_cache_it = from_cache_it->second.find(to);
+        if (to_cache_it != from_cache_it->second.end()) {
+            return to_cache_it->second;
+        }
     }
 
     std::vector<RemovableDependency> results;
@@ -176,8 +175,8 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtTargetLevel(
     auto from_it = targets_.find(from);
     auto to_it = targets_.find(to);
     if (from_it == targets_.end() || to_it == targets_.end()) {
-        target_level_cache_[cache_key] = results;
-        return target_level_cache_[cache_key];
+        target_level_cache_[from][to] = results;
+        return target_level_cache_[from][to];
     }
     
     const auto& from_target = from_it->second;
@@ -186,8 +185,8 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtTargetLevel(
     // 检查依赖是否真的在deps列表中
     bool dep_exists = graph_.HasDirectEdge(from, to);
     if (!dep_exists) {
-        target_level_cache_[cache_key] = results;
-        return target_level_cache_[cache_key];
+        target_level_cache_[from][to] = results;
+        return target_level_cache_[from][to];
     }
     
     // 规则类型分析
@@ -219,8 +218,8 @@ std::vector<RemovableDependency> CycleDetector::AnalyzeDependencyAtTargetLevel(
         // @TODO 
     }
     
-    target_level_cache_[cache_key] = results;
-    return target_level_cache_[cache_key];
+    target_level_cache_[from][to] = results;
+    return target_level_cache_[from][to];
 }
 
 ConfidenceLevel CycleDetector::CalculateConfidence(const RemovableDependency& dep) const {
@@ -239,36 +238,35 @@ ConfidenceLevel CycleDetector::CalculateConfidence(const RemovableDependency& de
 }
 
 bool CycleDetector::IsCriticalDependency(const std::string& from, const std::string& to) const {
-    const std::string cache_key = BuildEdgeCacheKey(from, to);
-    auto cached = critical_dependency_cache_.find(cache_key);
-    if (cached != critical_dependency_cache_.end()) {
-        return cached->second;
+    auto from_cache_it = critical_dependency_cache_.find(from);
+    if (from_cache_it != critical_dependency_cache_.end()) {
+        auto to_cache_it = from_cache_it->second.find(to);
+        if (to_cache_it != from_cache_it->second.end()) {
+            return to_cache_it->second;
+        }
     }
 
     // 获取from的所有依赖（除了to）
-    auto deps = graph_.GetDirectDependencies(from);
+    const auto& deps = graph_.GetDirectDependencies(from);
     if (deps.empty()) {
-        critical_dependency_cache_[cache_key] = true;
+        critical_dependency_cache_[from][to] = true;
         return true;
     }
-    
-    // 检查是否有其他路径可以到达to
-    auto transitive_deps = graph_.GetTransitiveDependencies(from);
-    
+
     // 如果to只能通过直接依赖到达，那么这个依赖可能是关键的
     bool has_alternative_path = false;
     for (const auto& dep : deps) {
         if (dep != to) {
-            auto dep_transitive = graph_.GetTransitiveDependencies(dep);
+            const auto& dep_transitive = graph_.GetTransitiveDependencies(dep);
             if (dep_transitive.find(to) != dep_transitive.end()) {
                 has_alternative_path = true;
                 break;
             }
         }
     }
-    
-    critical_dependency_cache_[cache_key] = !has_alternative_path;
-    return critical_dependency_cache_[cache_key];
+
+    critical_dependency_cache_[from][to] = !has_alternative_path;
+    return critical_dependency_cache_[from][to];
 }
 
 CycleType CycleDetector::DetermineBaseCycleType(const std::vector<std::string>& cycle) const {
@@ -300,11 +298,8 @@ bool CycleDetector::IsDirectCycle(const std::vector<std::string>& cycle) const {
     
     const auto& a = cycle[0];
     const auto& b = cycle[1];
-    
-    auto deps_a = graph_.GetTransitiveDependencies(a);
-    auto deps_b = graph_.GetTransitiveDependencies(b);
-    
-    return deps_b.find(a) != deps_b.end() && deps_a.find(b) != deps_a.end();
+
+    return graph_.HasDirectEdge(a, b) && graph_.HasDirectEdge(b, a);
 }
 
 bool CycleDetector::IsDiamondDependency(const std::vector<std::string>& cycle) const {
@@ -312,7 +307,7 @@ bool CycleDetector::IsDiamondDependency(const std::vector<std::string>& cycle) c
     
     // 检查是否存在多个路径到达同一个节点
     for (const auto& node : cycle) {
-        auto deps = graph_.GetTransitiveDependencies(node);
+        const auto& deps = graph_.GetTransitiveDependencies(node);
         int reachable_count = 0;
         
         for (const auto& other : cycle) {

@@ -24,7 +24,7 @@ public:
     std::vector<std::vector<std::string>> FindCycles() const;
 
     // 获取传递依赖
-    std::unordered_set<std::string> GetTransitiveDependencies(const std::string& target) const;
+    const std::unordered_set<std::string>& GetTransitiveDependencies(const std::string& target) const;
 
     // 查找未使用的依赖
     std::vector<std::string> FindUnusedDependencies(const std::string& target) const;
@@ -39,7 +39,7 @@ public:
     bool HasDirectEdge(const std::string& from, const std::string& to) const;
     
     // 未使用依赖检测相关
-    std::unordered_set<std::string> GetReverseDependencies(const std::string& target) const;
+    const std::unordered_set<std::string>& GetReverseDependencies(const std::string& target) const;
 
     // 设置源码分析器
     void SetSourceAnalyzer(SourceAnalyzer* source_analyzer) const;
@@ -66,7 +66,7 @@ private:
     mutable std::unordered_map<std::string, std::unordered_set<std::string>> transitive_deps_cache_;
     mutable std::unordered_set<std::string> empty_dependency_set_;
     // target + dependency 粒度的“传递依赖是否真正需要”缓存
-    mutable std::unordered_map<std::string, bool> dependency_need_cache_;
+    mutable std::unordered_map<std::string, std::unordered_map<std::string, bool>> dependency_need_cache_;
     
     // 构建依赖图
     void BuildGraph();
